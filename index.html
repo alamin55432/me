@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>উঠান - বাংলা সোশ্যাল সাইট</title>
+    <title>বৈঠকখানা - বাংলা সোশ্যাল সাইট</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -28,6 +28,12 @@
             background: #f0fdf4;
             border: 1px solid #bbf7d0;
             border-radius: 16px;
+        }
+        .story-clamp {
+            display: -webkit-box;
+            -webkit-line-clamp: 5;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .tabular-nums {
             font-variant-numeric: tabular-nums;
@@ -62,7 +68,7 @@
         const EDITOR_EMAIL = "alamin55432@gmail.com";
         const NEWS_TTL = 60 * 60 * 1000;      // ১ ঘণ্টা পরপর সংবাদ আপডেট
         const OTHER_TTL = 6 * 60 * 60 * 1000; // ৬ ঘণ্টা পরপর কুরআন ও হাদিস আপডেট
-        const CACHE_KEY = "uthan_live_cards_v4";
+        const CACHE_KEY = "boithokkhana_live_cards_v5";
 
         const professions = [
             "কৃষক", "ছাত্র", "শিক্ষক", "প্রকৌশলী",
@@ -117,6 +123,18 @@
         ];
 
         const hasBengaliScript = str => /[\u0980-\u09FF]/.test(String(str || ''));
+        // ম্যানুয়াল কার্ডে যেকোনো ভাষার লেখা চলবে; অটো কার্ডে বাংলা থাকতে হবে
+        const validStory = (item, idx) => !!item && (item.mode === 'manual'
+            ? !!item.text
+            : hasBengaliScript(item.title) && (idx === 0 || idx === 3 || hasBengaliScript(item.text)));
+        const STORY_DEFAULTS = [
+            { id: 'st1', title: 'আজকের তারিখ ও সময়', text: '' },
+            { id: 'st2', title: 'আজকের কুরআন আয়াত', text: BENGALI_QURAN_FALLBACK[0] },
+            { id: 'st3', title: 'আজকের হাদিস', text: BENGALI_HADITH_FALLBACK[0] },
+            { id: 'st4', title: 'বাংলার প্রবাদ', text: '' },
+            { id: 'st5', title: 'সর্বশেষ সংবাদ', text: '• দেশের সর্বশেষ গুরুত্বপূর্ণ সংবাদ ও সমসাময়িক আপডেট\n— সূত্র: বাংলা সংবাদ ডেস্ক' }
+        ];
+        const storyOpen = {};
 
         // ৫টি লাইভ কার্ড (সম্পূর্ণ বাংলা লেখা)
         let fixedStories = [
@@ -139,7 +157,7 @@
             const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
             if (cached && Array.isArray(cached.items) && cached.items.length === 5) {
                 cached.items.forEach((item, idx) => {
-                    if (item && hasBengaliScript(item.title) && (idx === 0 || idx === 3 || hasBengaliScript(item.text))) {
+                    if (validStory(item, idx)) {
                         fixedStories[idx] = item;
                     }
                 });
@@ -209,10 +227,10 @@
         };
 
         function showToast(msg, isError = false) {
-            const old = document.getElementById('uthan-toast');
+            const old = document.getElementById('bk-toast');
             if (old) old.remove();
             const el = document.createElement('div');
-            el.id = 'uthan-toast';
+            el.id = 'bk-toast';
             el.className = `fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg border ${
                 isError
                     ? 'bg-neutral-900 text-white border-rose-500'
@@ -384,6 +402,7 @@
         }
 
         function liveStory(st) {
+            if (st.mode === 'manual') return st;
             if (st.id === 'st1') return { ...st, text: todayStoryText() };
             if (st.id === 'st4') {
                 const slot = Math.floor(Date.now() / OTHER_TTL);
@@ -409,20 +428,109 @@
             } finally { clearTimeout(t); }
         }
 
+        // ---------- রিয়েল সংবাদ সোর্স (একাধিক বাংলা পত্রিকার RSS) ----------
+        const NEWS_SOURCES = [
+            { name: 'বিবিসি বাংলা', rss: 'https://feeds.bbci.co.uk/bengali/rss.xml' },
+            { name: 'প্রথম আলো', rss: 'https://www.prothomalo.com/feed/' },
+            { name: 'যুগান্তর', rss: 'https://www.jugantor.com/feed/rss.xml' },
+            { name: 'কালের কণ্ঠ', rss: 'https://www.kalerkantho.com/rss.xml' },
+            { name: 'জাগো নিউজ', rss: 'https://www.jagonews24.com/rss/rss.xml' },
+            { name: 'বাংলা নিউজ ২৪', rss: 'https://www.banglanews24.com/rss/rss.xml' }
+        ];
+        const isHttpLink = u => /^https?:\/\//i.test(String(u || ''));
+        const isManual = i => !!(fixedStories[i] && fixedStories[i].mode === 'manual');
+
+        function parseFeedTime(p) {
+            p = String(p || '').trim();
+            if (/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(p)) return Date.parse(p.replace(' ', 'T') + 'Z') || 0;
+            const t = Date.parse(p);
+            return isNaN(t) ? 0 : Math.min(t, Date.now());
+        }
+
+        function parseFeedXml(xml, srcName) {
+            const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            return Array.from(doc.querySelectorAll('item')).slice(0, 15).map(it => {
+                const g = tag => (it.querySelector(tag)?.textContent || '').trim();
+                return { title: g('title'), link: g('link'), time: parseFeedTime(g('pubDate')), source: srcName };
+            });
+        }
+
+        async function fetchFeedItems(src) {
+            // ১ম চেষ্টা: rss2json; ব্যর্থ হলে ২য় চেষ্টা: সরাসরি RSS XML (প্রক্সি দিয়ে)
+            try {
+                const f = await fetchJson('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(src.rss), 6500);
+                if (f.status && f.status !== 'ok') throw new Error('rss2json');
+                const items = (f.items || []).slice(0, 15).map(i => ({
+                    title: i.title, link: i.link, time: parseFeedTime(i.pubDate), source: src.name
+                }));
+                if (items.length) return items;
+            } catch (e) {}
+            const c = new AbortController();
+            const t = setTimeout(() => c.abort(), 6500);
+            try {
+                const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(src.rss), { signal: c.signal });
+                if (!r.ok) throw new Error(r.status);
+                return parseFeedXml(await r.text(), src.name);
+            } finally { clearTimeout(t); }
+        }
+
+        async function pushStoriesToCloud(extra = {}) {
+            try {
+                await db.collection('config').doc('stories').set({
+                    items: fixedStories,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    ...extra
+                }, { merge: true });
+                synced.stories = JSON.stringify(fixedStories);
+                return true;
+            } catch (e) {
+                showToast('সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।', true);
+                return false;
+            }
+        }
+
         async function refreshNewsEveryHour(force = false) {
             if (!auth.currentUser || newsBusy) return false;
+            if (isManual(4)) {
+                if (force) showToast('সংবাদ কার্ড এখন ম্যানুয়াল মোডে আছে। অটোতে ফেরালে আপডেট হবে।', true);
+                return false;
+            }
             if (!force && (Date.now() - newsUpdatedAt < NEWS_TTL)) return false;
             newsBusy = true;
             try {
-                const f = await fetchJson('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/bengali/rss.xml'));
-                const lines = (f.items || [])
-                    .map(i => clip(i.title, 120))
-                    .filter(t => hasBengaliScript(t))
-                    .slice(0, 3)
-                    .map(t => '• ' + t);
-                if (!lines.length) return false;
-                const newsText = lines.join('\n') + '\n— সূত্র: বিবিসি বাংলা';
-                fixedStories[4] = { id: 'st5', title: 'সর্বশেষ সংবাদ', text: newsText };
+                const results = await Promise.allSettled(NEWS_SOURCES.map(fetchFeedItems));
+                const now = Date.now();
+                let all = [];
+                let liveSources = 0;
+                results.forEach(r => {
+                    if (r.status === 'fulfilled' && r.value.length) { liveSources++; all = all.concat(r.value); }
+                });
+                all = all
+                    .map(i => ({ ...i, title: clip(i.title, 110) }))
+                    .filter(i => hasBengaliScript(i.title) && isHttpLink(i.link))
+                    .filter(i => !i.time || now - i.time < 48 * 3600 * 1000);
+                all.sort((a, b) => (b.time || 0) - (a.time || 0));
+
+                const cap = liveSources >= 3 ? 2 : 4;
+                const perSrc = {};
+                const seen = new Set();
+                const picked = [];
+                for (const i of all) {
+                    const key = i.title.replace(/[\s\u200c\u200d।,.\-–:‘’“”"']/g, '').slice(0, 40);
+                    if (seen.has(key) || (perSrc[i.source] || 0) >= cap) continue;
+                    seen.add(key);
+                    perSrc[i.source] = (perSrc[i.source] || 0) + 1;
+                    picked.push(i);
+                    if (picked.length >= 6) break;
+                }
+                if (!picked.length) {
+                    if (force) showToast('এই মুহূর্তে কোনো সোর্স থেকে সংবাদ আনা যায়নি।', true);
+                    return false;
+                }
+                const news = picked.map(i => ({ t: i.title, u: i.link, s: i.source, d: i.time || 0 }));
+                const text = news.map(n => '• ' + n.t + ' (' + n.s + ')').join('\n')
+                    + '\n— সূত্র: ' + [...new Set(news.map(n => n.s))].join(', ');
+                fixedStories[4] = { id: 'st5', title: 'সর্বশেষ সংবাদ', text, news };
                 newsUpdatedAt = Date.now();
                 saveLocalStoriesCache();
                 if (state.currentUser?.isEditor) {
@@ -444,6 +552,11 @@
 
         async function refreshOtherStoriesEvery6Hours(force = false) {
             if (!auth.currentUser || storyBusy) return false;
+            const skipAyah = isManual(1), skipHadith = isManual(2);
+            if (skipAyah && skipHadith) {
+                if (force) showToast('কুরআন ও হাদিস কার্ড এখন ম্যানুয়াল মোডে আছে।', true);
+                return false;
+            }
             if (!force && (Date.now() - otherUpdatedAt < OTHER_TTL)) return false;
             storyBusy = true;
             try {
@@ -452,56 +565,63 @@
                 let ok = 0;
 
                 await Promise.all([
-                    (async () => {
-                        const n = (slot * 37) % 6236 + 1;
-                        const a = (await fetchJson('https://api.alquran.cloud/v1/ayah/' + n + '/bn.bengali')).data;
-                        if (a && hasBengaliScript(a.text)) {
-                            const sNum = a.surah.number;
-                            const surahBn = SURAH_NAMES_BN[sNum] || `সূরা ${bnNum(sNum)}`;
-                            next[1] = {
-                                id: 'st2',
-                                title: 'আজকের কুরআন আয়াত',
-                                text: `“${a.text.trim()}”\n— সূরা ${surahBn} (${bnNum(sNum)}), আয়াত নং: ${bnNum(a.numberInSurah)}`
-                            };
-                            ok++;
+                    // কুরআন: আরবি (উসমানী) + বাংলা অনুবাদ, একই কলে; সংক্ষিপ্ত আয়াত বেছে নেওয়া হয়
+                    skipAyah ? null : (async () => {
+                        for (let a = 0; a < 4; a++) {
+                            try {
+                                const n = ((slot * 37 + a * 911) % 6236) + 1;
+                                const d = (await fetchJson('https://api.alquran.cloud/v1/ayah/' + n + '/editions/quran-uthmani,bn.bengali')).data;
+                                if (!Array.isArray(d)) continue;
+                                const ar = d.find(x => x.edition && x.edition.identifier === 'quran-uthmani');
+                                const bn = d.find(x => x.edition && x.edition.identifier === 'bn.bengali');
+                                if (!bn || !hasBengaliScript(bn.text) || bn.text.length > 320) continue;
+                                const sNum = bn.surah.number;
+                                const surahBn = SURAH_NAMES_BN[sNum] || `সূরা ${bnNum(sNum)}`;
+                                const arabic = ar && ar.text && ar.text.length < 400 ? ar.text.trim() + '\n\n' : '';
+                                next[1] = {
+                                    id: 'st2',
+                                    title: 'আজকের কুরআন আয়াত',
+                                    text: `${arabic}“${bn.text.trim()}”\n— সূরা ${surahBn} (${bnNum(sNum)}), আয়াত নং: ${bnNum(bn.numberInSurah)}`
+                                };
+                                ok++;
+                                return;
+                            } catch (e) {}
                         }
-                    })().catch(() => {
-                        next[1] = {
-                            id: 'st2',
-                            title: 'আজকের কুরআন আয়াত',
-                            text: BENGALI_QURAN_FALLBACK[slot % BENGALI_QURAN_FALLBACK.length]
-                        };
-                    }),
-                    (async () => {
+                    })(),
+                    // হাদিস: বুখারী, মুসলিম, আবু দাউদ (বাংলা সংস্করণ) থেকে সংক্ষিপ্ত হাদিস
+                    skipHadith ? null : (async () => {
                         const editions = [
                             ['ben-bukhari', 4000, 'সহীহ বুখারী'],
                             ['ben-muslim', 3000, 'সহীহ মুসলিম'],
                             ['ben-abudawud', 3500, 'সুনানে আবু দাউদ']
                         ];
                         for (const [ed, max, name] of editions) {
-                            try {
-                                const n = (slot * 53) % max + 1;
-                                const h = await fetchJson(`https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${ed}/${n}.json`);
-                                const t = h.text || (h.hadiths && h.hadiths[0] && h.hadiths[0].text);
-                                if (t && hasBengaliScript(t)) {
+                            for (let a = 0; a < 3; a++) {
+                                try {
+                                    const n = ((slot * 53 + a * 617) % max) + 1;
+                                    const h = await fetchJson(`https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${ed}/${n}.json`);
+                                    const first = h.hadiths && h.hadiths[0];
+                                    const t = (h.text || (first && first.text) || '').trim();
+                                    if (!t || !hasBengaliScript(t) || t.length > 380) continue;
+                                    const num = h.hadithnumber || (first && first.hadithnumber) || n;
                                     next[2] = {
                                         id: 'st3',
                                         title: 'আজকের হাদিস',
-                                        text: `“${t.trim()}”\n— ${name}, হাদিস নং: ${bnNum(n)}`
+                                        text: `“${t}”\n— ${name}, হাদিস নং: ${bnNum(num)}`
                                     };
                                     ok++;
                                     return;
-                                }
-                            } catch (e) {}
+                                } catch (e) {}
+                            }
                         }
-                        next[2] = {
-                            id: 'st3',
-                            title: 'আজকের হাদিস',
-                            text: BENGALI_HADITH_FALLBACK[slot % BENGALI_HADITH_FALLBACK.length]
-                        };
                     })()
                 ]);
 
+                // কিছুই আনা না গেলে আগের (সত্যিকারের) কার্ডই থাকবে; পরের ৩০ মিনিটে আবার চেষ্টা হবে
+                if (ok === 0) {
+                    if (force) showToast('এই মুহূর্তে কুরআন/হাদিস আনা যায়নি। পরে আবার চেষ্টা করুন।', true);
+                    return false;
+                }
                 fixedStories = next;
                 otherUpdatedAt = Date.now();
                 saveLocalStoriesCache();
@@ -514,12 +634,45 @@
                 }
                 render();
                 if (force) showToast('কুরআন ও হাদিস আপডেট হয়েছে!');
-                return ok > 0;
+                return true;
             } catch (e) {
                 return false;
             } finally {
                 storyBusy = false;
             }
+        }
+
+        // ---------- এডিটরের ম্যানুয়াল কার্ড কন্ট্রোল ----------
+        async function saveStoryCard(i) {
+            if (!state.currentUser?.isEditor) return;
+            const base = fixedStories[i];
+            const mode = document.getElementById('cardMode_' + i).value;
+            const title = document.getElementById('cardTitle_' + i).value.trim();
+            const text = document.getElementById('cardText_' + i).value.trim();
+            if (mode === 'manual') {
+                if (!title || !text) {
+                    showToast('ম্যানুয়াল কার্ডে শিরোনাম ও লেখা দুটোই দিন!', true);
+                    return;
+                }
+                fixedStories[i] = { id: base.id, title, text, mode: 'manual' };
+            } else {
+                fixedStories[i] = { ...STORY_DEFAULTS[i] };
+            }
+            saveLocalStoriesCache();
+            await pushStoriesToCloud();
+            render();
+            if (mode === 'manual') {
+                showToast('কার্ড ম্যানুয়াল মোডে সংরক্ষণ হয়েছে।');
+            } else {
+                showToast('কার্ড অটো মোডে ফিরেছে।');
+                if (i === 4) refreshNewsEveryHour(true);
+                else if (i === 1 || i === 2) refreshOtherStoriesEvery6Hours(true);
+            }
+        }
+
+        function toggleStoryOpen(id) {
+            storyOpen[id] = !storyOpen[id];
+            render();
         }
 
         setInterval(() => refreshNewsEveryHour(false), 15 * 60 * 1000);
@@ -662,7 +815,7 @@
                 if (d.exists && Array.isArray(d.data().items)) {
                     const cloudItems = d.data().items;
                     cloudItems.forEach((item, idx) => {
-                        if (item && idx < 5 && hasBengaliScript(item.title) && (idx === 0 || idx === 3 || hasBengaliScript(item.text))) {
+                        if (idx < 5 && validStory(item, idx)) {
                             fixedStories[idx] = item;
                         }
                     });
@@ -720,8 +873,8 @@
                 <header class="bg-white border-b border-neutral-200 sticky top-0 z-40">
                     <div class="max-w-3xl mx-auto px-4 py-3 flex justify-between items-center">
                         <div class="cursor-pointer flex items-center gap-2.5" onclick="switchView('feed')">
-                            <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base">উ</span>
-                            <span class="text-xl font-bold text-neutral-900 tracking-tight">উঠান</span>
+                            <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base">বৈ</span>
+                            <span class="text-xl font-bold text-neutral-900 tracking-tight">বৈঠকখানা</span>
                         </div>
                         <div class="flex items-center space-x-3 sm:space-x-5 text-sm font-medium">
                             <button onclick="switchView('feed')" class="px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition ${state.currentView === 'feed' ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200' : 'text-neutral-600 hover:bg-neutral-100'}">
@@ -776,8 +929,8 @@
                 <div class="min-h-screen flex items-center justify-center bg-neutral-50 px-4 py-12">
                     <div class="max-w-md w-full bg-white rounded-2xl border border-neutral-200 p-8 shadow-sm">
                         <div class="text-center mb-7">
-                            <div class="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-2xl mx-auto mb-3">উ</div>
-                            <h1 class="text-3xl font-bold text-neutral-900 mb-1">উঠান</h1>
+                            <div class="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-xl mx-auto mb-3">বৈ</div>
+                            <h1 class="text-3xl font-bold text-neutral-900 mb-1">বৈঠকখানা</h1>
                             <p class="text-neutral-500 text-xs">সহজ ও পরিচ্ছন্ন বাংলা সামাজিক মাধ্যম</p>
                         </div>
                         <form onsubmit="handleLogin(event)" class="space-y-4">
@@ -879,15 +1032,15 @@
                             <div class="flex-grow min-w-0">
                                 <div class="flex flex-wrap items-center justify-between gap-1.5">
                                     <span class="text-xs font-bold text-emerald-900">
-                                        ${esc(currentStory.title)}${currentStory.id === 'st5' && newsUpdatedAt ? ' · ' + timeAgo(newsUpdatedAt) : ''}
+                                        ${esc(currentStory.title)}${currentStory.id === 'st5' && currentStory.mode !== 'manual' && newsUpdatedAt ? ' · ' + timeAgo(newsUpdatedAt) : ''}
                                     </span>
-                                    ${currentStory.id === 'st1' ? `
+                                    ${currentStory.id === 'st1' && currentStory.mode !== 'manual' ? `
                                         <span id="liveStandardClock" class="text-[11px] font-bold bg-white text-neutral-900 border border-emerald-200 px-2.5 py-0.5 rounded-full tabular-nums">
                                             ${esc(getStandardTimeBD())}
                                         </span>
                                     ` : ''}
                                 </div>
-                                <p class="text-sm font-medium text-neutral-800 leading-relaxed mt-1.5 whitespace-pre-line break-words">${esc(currentStory.text)}</p>
+                                ${renderStoryBody(currentStory)}
                             </div>
                         </div>
                         <div class="flex items-center justify-between mt-3.5 pt-2.5 border-t border-emerald-200/70">
@@ -926,6 +1079,22 @@
                     </div>
                 </main>
             `;
+        }
+
+        function renderStoryBody(st) {
+            const open = !!storyOpen[st.id];
+            const toggle = label => `<button onclick="toggleStoryOpen('${st.id}')" class="mt-1.5 text-xs font-bold text-emerald-800 hover:underline">${label}</button>`;
+            if (st.id === 'st5' && st.mode !== 'manual' && Array.isArray(st.news) && st.news.length) {
+                const list = open ? st.news : st.news.slice(0, 3);
+                return `<ul class="mt-1.5 space-y-1.5">${list.map(n => {
+                    const u = isHttpLink(n.u) ? safeUrl(n.u) : '';
+                    const t = esc(n.t);
+                    return `<li class="text-sm font-medium text-neutral-800 leading-relaxed break-words">• ${u ? `<a href="${u}" target="_blank" rel="noopener noreferrer" class="hover:text-emerald-800 hover:underline">${t}</a>` : t} <span class="text-[11px] text-neutral-500">— ${esc(n.s)}${n.d ? ' · ' + esc(timeAgo(n.d)) : ''}</span></li>`;
+                }).join('')}</ul>${st.news.length > 3 ? toggle(open ? 'কম দেখান' : `আরও ${bnNum(st.news.length - 3)}টি সংবাদ দেখুন`) : ''}`;
+            }
+            const txt = String(st.text || '');
+            const big = txt.length > 200 || txt.split('\n').length > 6;
+            return `<p class="text-sm font-medium text-neutral-800 leading-relaxed mt-1.5 whitespace-pre-line break-words ${big && !open ? 'story-clamp' : ''}">${esc(txt)}</p>${big ? toggle(open ? 'কম দেখান' : 'আরও পড়ুন') : ''}`;
         }
 
         function goStory(i) {
@@ -1301,7 +1470,7 @@
 
                     <div class="clean-card p-5 space-y-3">
                         <div class="flex justify-between items-center flex-wrap gap-2">
-                            <h3 class="font-bold text-neutral-900 text-sm"><i class="fa-solid fa-rotate text-emerald-600 mr-1"></i> লাইভ কার্ড আপডেট</h3>
+                            <h3 class="font-bold text-neutral-900 text-sm"><i class="fa-solid fa-rotate text-emerald-600 mr-1"></i> লাইভ কার্ড ম্যানেজার</h3>
                             <div class="flex gap-2">
                                 <button onclick="refreshNewsEveryHour(true)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold">সংবাদ রিফ্রেশ</button>
                                 <button onclick="refreshOtherStoriesEvery6Hours(true)" class="bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold">কুরআন ও হাদিস রিফ্রেশ</button>
@@ -1310,6 +1479,27 @@
                         <p class="text-xs text-neutral-500">
                             সংবাদ: ${newsUpdatedAt ? timeAgo(newsUpdatedAt) : 'এখনো হয়নি'} · কুরআন ও হাদিস: ${otherUpdatedAt ? timeAgo(otherUpdatedAt) : 'এখনো হয়নি'}
                         </p>
+                        <p class="text-xs text-neutral-500">প্রতিটি কার্ড অটো (সোর্স থেকে নিজে আপডেট) বা ম্যানুয়াল (আপনার লেখা) মোডে রাখতে পারবেন। ম্যানুয়াল কার্ড অটো আপডেটে বদলাবে না।</p>
+                        ${fixedStories.map((st, i) => {
+                            const ls = liveStory(st);
+                            const manual = st.mode === 'manual';
+                            return `
+                            <div class="rounded-xl border ${manual ? 'border-amber-300 bg-amber-50/50' : 'border-neutral-200 bg-neutral-50'} p-3 space-y-2">
+                                <div class="flex items-center justify-between gap-2 flex-wrap">
+                                    <span class="text-xs font-bold text-neutral-900">কার্ড ${bnNum(i + 1)}</span>
+                                    <span class="text-[11px] px-2 py-0.5 rounded-full font-bold ${manual ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${manual ? 'ম্যানুয়াল' : 'অটো'}</span>
+                                </div>
+                                <input id="cardTitle_${i}" maxlength="60" value="${esc(ls.title)}" placeholder="কার্ডের শিরোনাম" class="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white focus:border-emerald-600 focus:outline-none">
+                                <textarea id="cardText_${i}" rows="3" maxlength="800" placeholder="কার্ডের লেখা" class="w-full p-3 rounded-xl border border-neutral-300 text-sm bg-white focus:border-emerald-600 focus:outline-none">${esc(ls.text)}</textarea>
+                                <div class="flex items-center justify-between gap-2 flex-wrap">
+                                    <select id="cardMode_${i}" class="p-2 rounded-xl border border-neutral-300 text-xs bg-white font-semibold">
+                                        <option value="auto" ${manual ? '' : 'selected'}>অটো আপডেট</option>
+                                        <option value="manual" ${manual ? 'selected' : ''}>ম্যানুয়াল (আমার লেখা)</option>
+                                    </select>
+                                    <button onclick="saveStoryCard(${i})" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-xl text-xs font-bold">কার্ড সেভ করুন</button>
+                                </div>
+                            </div>`;
+                        }).join('')}
                     </div>
 
                     <div class="clean-card p-5 space-y-3">
@@ -1540,7 +1730,7 @@
                 await db.collection('notifications').doc(nid).set({
                     id: nid,
                     recipientPhone: phone,
-                    text: 'উঠান পরিবারে আপনাকে স্বাগতম!',
+                    text: 'বৈঠকখানা পরিবারে আপনাকে স্বাগতম!',
                     isRead: false,
                     isEditorBroadcast: false,
                     date: 'এইমাত্র',
