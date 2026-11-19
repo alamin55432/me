@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uthan - বাংলা সোশ্যাল সাইট (Cloud Live)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+</head>
+<body class="bg-stone-50 text-stone-800 font-sans antialiased min-h-screen pb-12">
+
+    <div id="app" class="min-h-screen flex flex-col"></div>
+
+    <script>
+        // TODO: আপনার ফায়ারবেস কনসোল থেকে পাওয়া কনফিগারেশন এখানে বসান
+       const firebaseConfig = {
+  apiKey: "AIzaSyCwxTRS9qV4E_SKNcDbwZhpAbmt9lzTTB0",
+  authDomain: "uthan-app.firebaseapp.com",
+  databaseURL: "https://uthan-app-default-rtdb.firebaseio.com",
+  projectId: "uthan-app",
+  storageBucket: "uthan-app.firebasestorage.app",
+  messagingSenderId: "38539464818",
+  appId: "1:38539464818:web:8518def23c53c3ec5ff2eb",
+  measurementId: "G-WVRJNJBVTY"
+};
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+
+        // ---------- Helpers (security & UX) ----------
+        function esc(v){ return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+        function safeUrl(u){
+            u = String(u || '');
+            if (u.startsWith('data:image/')) return esc(u);
+            try { const x = new URL(u); return (x.protocol === 'https:' || x.protocol === 'http:') ? esc(u) : ''; } catch (e) { return ''; }
+        }
+        async function hashPw(phone, pw){
+            if (!window.crypto || !crypto.subtle) return pw;
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('uthan:' + phone + ':' + pw));
+            return 'h1$' + Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2, '0')).join('');
+        }
+        function timeAgo(ts, fallback){
+            if (!ts) return fallback || 'এইমাত্র';
+            const s = Math.floor((Date.now() - ts) / 1000), bn = n => n.toLocaleString('bn-BD');
+            if (s < 60) return 'এইমাত্র';
+            if (s < 3600) return bn(Math.floor(s / 60)) + ' মিনিট আগে';
+            if (s < 86400) return bn(Math.floor(s / 3600)) + ' ঘণ্টা আগে';
+            if (s < 2592000) return bn(Math.floor(s / 86400)) + ' দিন আগে';
+            return new Date(ts).toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric' });
+        }
+        function todayStoryText(){
+            const d = new Date();
+            const en = d.toLocaleDateString('bn-BD', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            let ar = '';
+            try { ar = d.toLocaleDateString('bn-BD-u-ca-islamic-umalqura', { year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) {}
+            return 'ইংরেজি: ' + en + (ar ? ' | হিজরি: ' + ar : '');
+        }
+        document.addEventListener('error', e => {
+            const t = e.target;
+            if (!t || t.tagName !== 'IMG' || t.dataset.fb) return;
+            t.dataset.fb = 1;
+            if (t.alt === 'Post image') t.parentElement.style.display = 'none'; else t.src = getAutoAvatar();
+        }, true);
+
+        const professions = [
+            "কৃষক (Farmer)", "ছাত্র (Student)", "শিক্ষক (Teacher)", "প্রকৌশলী (Engineer)", 
+            "ডাক্তার (Doctor)", "ব্যবসায়ী (Business)", "প্রবাসী (Expatriate)", "চাকরিজীবী (Service Holder)"
+        ];
+
+        function getAutoAvatar() {
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#d1fae5"/><circle cx="48" cy="38" r="17" fill="#059669"/><path d="M14 96c2-22 18-32 34-32s32 10 34 32z" fill="#059669"/></svg>';
+            return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+        }
+
+        let fixedStories = [
+            { id: 'st1', title: 'আজকের তারিখ', text: 'ইংরেজি: ১৯ নভেম্বর ২০২৬ | বাংলা: ৪ অগ্রহায়ণ ১৪৩৩ | আরবি: ৮ জমাদিউল উলা ১৪৪৮ হিজরি।' },
+            { id: 'st2', title: 'আজকের কুরআন আয়াত', text: '"তোমরা ধৈর্য ও সালাতের মাধ্যমে সাহায্য প্রার্থনা করো।" (সুরা বাকারা: ৪৫)' },
+            { id: 'st3', title: 'আজকের হাদিস', text: '"তোমাদের মধ্যে সেই ব্যক্তি উত্তম, যে নিজে কুরআন শেখে এবং অপরকে শেখায়।" (বুখারি)' },
+            { id: 'st4', title: 'বাংলার প্রবাদ', text: '"চরে খাওয়া মানুষের মনে অহংকার থাকে না, পরিশ্রমই তাদের বড় পুঁজি।"' },
+            { id: 'st5', title: 'সর্বশেষ সংবাদ', text: 'ক্লাউড রিয়েল-টাইম সার্ভার সিঙ্ক সক্রিয় রয়েছে।' }
+        ];
+
+        let storyIndex = 0;
+
+        let state = {
+            currentUser: null,
+            authReady: false,
+            adminIds: new Set(),
+            signingUp: false,
+            postLimit: 15,
+            postsMore: false,
+            memberQuery: '',
+            users: [],
+            posts: [],
+            notifications: [],
+            currentView: 'login',
+            activeModalPostId: null,
+            viewingProfilePhone: null
+        };
+
+        // --- Cloud Firestore (separate collections + per-user Auth) ---
+        const synced = { users: {}, posts: {}, notifications: {}, stories: JSON.stringify(fixedStories) };
+        const idOf = (col, o) => col === 'users' ? o.uid : o.id;
+        const strip = (col, o) => { if (col !== 'users') return o; const { isEditor, email, password, ...r } = o; return r; };
+        const byNewest = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
+
+        // Writes only the documents that changed since the last sync
+        async function saveDataToCloud() {
+            if (!auth.currentUser) return;
+            try {
+                const batch = db.batch();
+                let n = 0;
+                for (const col of ['users', 'posts', 'notifications']) {
+                    const cur = {};
+                    state[col].forEach(o => { cur[idOf(col, o)] = strip(col, o); });
+                    for (const id in cur) {
+                        const j = JSON.stringify(cur[id]);
+                        if (synced[col][id] !== j) { batch.set(db.collection(col).doc(id), cur[id]); synced[col][id] = j; n++; }
+                    }
+                    for (const id in synced[col]) {
+                        if (!(id in cur)) { batch.delete(db.collection(col).doc(id)); delete synced[col][id]; n++; }
+                    }
+                }
+                const st = JSON.stringify(fixedStories);
+                if (state.currentUser && state.currentUser.isEditor && st !== synced.stories) {
+                    batch.set(db.collection('config').doc('stories'), { items: fixedStories, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }); synced.stories = st; n++;
+                }
+                if (n) await batch.commit();
+            } catch (error) {
+                console.error('Cloud Save Error: ', error);
+                alert('সংরক্ষণ করা যায়নি (অনুমতি নেই বা নেটওয়ার্ক সমস্যা)।');
+            }
+        }
+
+        function applyMe() {
+            const au = auth.currentUser;
+            if (!au) return false;
+            state.users.forEach(u => { u.isEditor = state.adminIds.has(u.uid); });
+            const me = state.users.find(u => u.uid === au.uid);
+            if (!me) return false;
+            const first = !state.currentUser;
+            state.currentUser = Object.assign({}, me, { email: au.email });
+            if (first) {
+                state.authReady = true;
+                if (state.currentView === 'login' || state.currentView === 'signup') state.currentView = 'feed';
+                startNotifListener(me.phone);
+            }
+            return true;
+        }
+
+        let unsubs = [], notifUnsub = null, postsUnsub = null;
+        function stopListeners() {
+            unsubs.forEach(u => u()); unsubs = [];
+            if (notifUnsub) { notifUnsub(); notifUnsub = null; }
+            if (postsUnsub) { postsUnsub(); postsUnsub = null; }
+        }
+        function startNotifListener(phone) {
+            if (notifUnsub) notifUnsub();
+            notifUnsub = db.collection('notifications').where('recipientPhone', '==', phone).onSnapshot(snap => {
+                state.notifications = snap.docs.map(d => d.data()).sort(byNewest);
+                synced.notifications = {};
+                state.notifications.forEach(o => { synced.notifications[o.id] = JSON.stringify(o); });
+                render();
+            }, e => console.error(e));
+        }
+        // Newest posts first; "load more" raises the limit. No expiry/TTL anywhere: posts stay until the author or an admin deletes them.
+        function startPostsListener() {
+            if (postsUnsub) postsUnsub();
+            postsUnsub = db.collection('posts').orderBy('createdAt', 'desc').limit(state.postLimit).onSnapshot(snap => {
+                state.postsMore = snap.docs.length >= state.postLimit;
+                state.posts = snap.docs.map(d => d.data());
+                synced.posts = {};
+                state.posts.forEach(o => { synced.posts[o.id] = JSON.stringify(o); });
+                render();
+            }, e => console.error(e));
+        }
+        function loadMorePosts() { state.postLimit += 15; startPostsListener(); }
+
+        // ---- Story cards: refreshed from the internet every 6 hours ----
+        const STORY_TTL = 6 * 3600 * 1000;
+        let storiesUpdatedAt = 0, storyBusy = false, storyLastTry = 0;
+        const PROVERBS = [
+            'অতি লোভে তাঁতি নষ্ট।', 'এক হাতে তালি বাজে না।', 'নাচতে না জানলে উঠান বাঁকা।', 'সবুরে মেওয়া ফলে।',
+            'যত গর্জে তত বর্ষে না।', 'ঘরের শত্রু বিভীষণ।', 'অতি দর্পে হত লঙ্কা।', 'শাক দিয়ে মাছ ঢাকা যায় না।',
+            'যতক্ষণ শ্বাস ততক্ষণ আশ।', 'সময়ের এক ফোঁড়, অসময়ের দশ ফোঁড়।', 'দশের লাঠি একের বোঝা।', 'ডুবে ডুবে জল খাওয়া।',
+            'কয়লা ধুলেও ময়লা যায় না।', 'আপনা মাংসে হরিণা বৈরী।', 'অভাবে স্বভাব নষ্ট।', 'তেলা মাথায় তেল দেওয়া।'
+        ];
+        async function fetchJson(url, ms = 9000) {
+            const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+            try { const r = await fetch(url, { signal: c.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); }
+            finally { clearTimeout(t); }
+        }
+        const clip = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+        const bnNum = n => Number(n).toLocaleString('bn-BD');
+
+        async function buildFreshStories() {
+            const slot = Math.floor(Date.now() / STORY_TTL);
+            const next = fixedStories.map(x => ({ ...x })), ok = [];
+            const set = (i, id, title, text) => { next[i] = { id, title, text }; ok.push(id); };
+            await Promise.all([
+                (async () => { // Quran ayah (Bengali translation)
+                    const n = (slot * 37) % 6236 + 1;
+                    const a = (await fetchJson('https://api.alquran.cloud/v1/ayah/' + n + '/bn.bengali')).data;
+                    set(1, 'st2', 'আজকের কুরআন আয়াত', '"' + clip(a.text, 320) + '" (সূরা নং ' + bnNum(a.surah.number) + ', আয়াত ' + bnNum(a.numberInSurah) + ')');
+                })().catch(() => {}),
+                (async () => { // Hadith (Bengali edition)
+                    for (const [ed, max, name] of [['ben-bukhari', 4000, 'বুখারি'], ['ben-abudawud', 4000, 'আবু দাউদ']]) {
+                        try {
+                            const n = (slot * 53) % max + 1;
+                            const h = await fetchJson('https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/' + ed + '/' + n + '.json');
+                            const t = h.text || (h.hadiths && h.hadiths[0] && h.hadiths[0].text);
+                            if (t) { set(2, 'st3', 'আজকের হাদিস', '"' + clip(t, 320) + '" (' + name + ', হাদিস ' + bnNum(n) + ')'); return; }
+                        } catch (e) {}
+                    }
+                })(),
+                (async () => { // Latest news (BBC Bangla headlines)
+                    const f = await fetchJson('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/bengali/rss.xml'));
+                    const lines = (f.items || []).slice(0, 3).map(i => '• ' + clip(i.title, 110));
+                    if (lines.length) set(4, 'st5', 'সর্বশেষ সংবাদ', lines.join('\n') + '\nসূত্র: বিবিসি বাংলা');
+                })().catch(() => {})
+            ]);
+            // Proverb: no free Bangla proverb API exists, so it rotates through a built-in list
+            set(3, 'st4', 'বাংলার প্রবাদ', '"' + PROVERBS[slot % PROVERBS.length] + '"');
+            return { next, fetched: ok.length - 1 };
+        }
+
+        async function maybeRefreshStories(force = false) {
+            if (!auth.currentUser || storyBusy) return false;
+            if (!force && (Date.now() - storiesUpdatedAt < STORY_TTL + 60000 || Date.now() - storyLastTry < 15 * 60000)) return false;
+            storyBusy = true; storyLastTry = Date.now();
+            try {
+                const { next, fetched } = await buildFreshStories();
+                if (fetched < 1) return false; // internet sources unreachable: keep current cards
+                await db.collection('config').doc('stories').set({ items: next, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                return true;
+            } catch (e) { return false; } // e.g. another user refreshed first (rules allow one refresh per 6 hours)
+            finally { storyBusy = false; }
+        }
+        setInterval(() => maybeRefreshStories(), 10 * 60 * 1000);
+
+        function startListeners() {
+            const err = e => console.error(e);
+            unsubs.push(db.collection('admins').onSnapshot(snap => {
+                state.adminIds = new Set(snap.docs.map(d => d.id)); applyMe(); render();
+            }, err));
+            unsubs.push(db.collection('users').onSnapshot(snap => {
+                state.users = snap.docs.map(d => d.data());
+                synced.users = {};
+                state.users.forEach(o => { synced.users[o.uid] = JSON.stringify(strip('users', o)); });
+                if (!applyMe() && !state.signingUp && !snap.metadata.fromCache && !snap.metadata.hasPendingWrites) { auth.signOut(); return; }
+                render();
+            }, err));
+            startPostsListener();
+            unsubs.push(db.collection('config').doc('stories').onSnapshot(d => {
+                if (d.exists && d.data().items) {
+                    fixedStories = d.data().items; synced.stories = JSON.stringify(fixedStories);
+                    const ts = d.data().updatedAt;
+                    storiesUpdatedAt = ts ? ts.toMillis() : Date.now();
+                } else { storiesUpdatedAt = 0; }
+                render();
+                maybeRefreshStories();
+            }, err));
+        }
+
+        auth.onAuthStateChanged(user => {
+            stopListeners();
+            if (!user) {
+                state.currentUser = null; state.notifications = []; state.authReady = true;
+                if (state.currentView !== 'signup') state.currentView = 'login';
+                render();
+                return;
+            }
+            startListeners();
+        });
+
+        function renderNavbar() {
+            if (!state.currentUser) return '';
+            const unreadCount = state.notifications.filter(n => n.recipientPhone === state.currentUser.phone && !n.isRead).length;
+
+            return `
+                <header class="bg-emerald-800 text-white shadow-md sticky top-0 z-50">
+                    <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+                        <div class="cursor-pointer" onclick="switchView('feed')">
+                            <span class="text-2xl font-bold tracking-wider font-serif">উঠান</span>
+                        </div>
+                        <div class="flex items-center space-x-6 text-sm font-medium">
+                            <button onclick="switchView('feed')" class="transition flex items-center space-x-1 py-1 ${state.currentView === 'feed' ? 'border-b-2 border-white font-bold' : 'hover:text-emerald-200'}">
+                                <i class="fa-solid fa-newspaper text-lg"></i> <span class="hidden sm:inline">ফিড</span>
+                            </button>
+                            <button onclick="switchView('notifications')" class="transition relative flex items-center space-x-1 py-1 ${state.currentView === 'notifications' ? 'border-b-2 border-white font-bold' : 'hover:text-emerald-200'}">
+                                <i class="fa-solid fa-bell text-lg"></i> <span class="hidden sm:inline">বিজ্ঞপ্তি</span>
+                                ${unreadCount > 0 ? `<span class="absolute -top-1 -right-2 bg-rose-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">${unreadCount}</span>` : ''}
+                            </button>
+                            <div class="relative">
+                                <button onclick="toggleSubmenu(event)" class="flex items-center space-x-2 focus:outline-none py-1">
+                                    <img src="${safeUrl(state.currentUser.profilePhoto)}" alt="Profile" class="w-9 h-9 rounded-full border-2 border-emerald-300 object-cover bg-white">
+                                    <i class="fa-solid fa-angle-down text-xs"></i>
+                                </button>
+                                <div id="navSubmenu" class="absolute right-0 mt-2 w-48 bg-white text-stone-800 rounded-lg shadow-2xl py-2 hidden border border-stone-200 z-50">
+                                    <button onclick="viewMyProfile()" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-700 flex items-center space-x-2">
+                                        <i class="fa-solid fa-user text-emerald-600 w-5"></i> <span>প্রোফাইল</span>
+                                    </button>
+                                    <button onclick="switchView('all_members')" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-700 flex items-center space-x-2">
+                                        <i class="fa-solid fa-users text-emerald-600 w-5"></i> <span>সকল সদস্য</span>
+                                    </button>
+                                    ${state.currentUser.isEditor ? `
+                                        <button onclick="switchView('editor_panel')" class="w-full text-left px-4 py-2 hover:bg-amber-50 hover:text-amber-700 flex items-center space-x-2 border-t border-stone-100">
+                                            <i class="fa-solid fa-shield-halved text-amber-600 w-5"></i> <span>অ্যাডমিন প্যানেল</span>
+                                        </button>
+                                    ` : ''}
+                                    <div class="border-t border-stone-100 my-1"></div>
+                                    <button onclick="logout()" class="w-full text-left px-4 py-2 hover:bg-rose-50 hover:text-rose-600 flex items-center space-x-2">
+                                        <i class="fa-solid fa-right-from-bracket text-rose-500 w-5"></i> <span>লগ আউট</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function toggleSubmenu(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('navSubmenu');
+            if (menu) menu.classList.toggle('hidden');
+        }
+
+        window.addEventListener('click', () => {
+            const menu = document.getElementById('navSubmenu');
+            if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+        });
+
+        function renderLogin() {
+            return `
+                <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-800 to-teal-900 px-4 py-12">
+                    <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border border-emerald-100">
+                        <div class="text-center mb-8">
+                            <h1 class="text-4xl font-bold text-emerald-800 font-serif mb-2">উঠান</h1>
+                            <p class="text-stone-500 text-sm">বাংলা সোশ্যাল সাইট</p>
+                        </div>
+                        <form onsubmit="handleLogin(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">মোবাইল (+880 fixed, 1 সহ ১০ ডিজিট)</label>
+                                <div class="flex">
+                                    <span class="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-stone-300 bg-stone-100 text-stone-600 text-xs font-bold">+880</span>
+                                    <input type="text" id="loginPhone" required pattern="1[0-9]{9}" placeholder="1712345678" maxlength="10" class="w-full px-4 py-3 rounded-r-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পাসওয়ার্ড</label>
+                                <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-4 py-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-lg shadow-lg transition duration-200">লগ ইন করুন</button>
+                        </form>
+                        <div class="flex justify-between items-center mt-4 text-sm">
+                            <button onclick="recoverPasswordPrompt()" class="text-emerald-700 hover:underline font-medium">পাসওয়ার্ড পুনরুদ্ধার</button>
+                            <button onclick="switchView('signup')" class="text-emerald-700 font-bold hover:underline">সাইন আপ</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSignup() {
+            return `
+                <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-800 to-teal-900 px-4 py-12">
+                    <div class="max-w-lg w-full bg-white rounded-2xl shadow-2xl p-8 border border-emerald-100 my-8">
+                        <div class="text-center mb-6">
+                            <h1 class="text-3xl font-bold text-emerald-800 font-serif mb-1">নতুন একাউন্ট তৈরি করুন</h1>
+                            <p class="text-stone-500 text-sm">প্রতিটি নম্বরে শুধুমাত্র একটি আইডি</p>
+                        </div>
+                        <form onsubmit="handleSignup(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পূর্ণ নাম</label>
+                                <input type="text" id="signupName" required placeholder="মোহাম্মদ রহিম" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">মোবাইল (+880 fixed, 1 সহ ১০ ডিজিট)</label>
+                                    <div class="flex">
+                                        <span class="inline-flex items-center px-2.5 rounded-l-lg border border-r-0 border-stone-300 bg-stone-100 text-stone-600 text-xs font-bold">+880</span>
+                                        <input type="text" id="signupPhone" required pattern="1[0-9]{9}" placeholder="1712345678" maxlength="10" class="w-full px-3 py-2.5 rounded-r-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">বয়স</label>
+                                    <input type="number" id="signupAge" min="10" max="100" required placeholder="২৫" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পেশা</label>
+                                    <select id="signupProfession" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm bg-white">
+                                        ${professions.map(p => `<option value="${p}">${p}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">এসএসসি ব্যাচ (৪ ডিজিট)</label>
+                                    <input type="text" id="signupBatch" required pattern="[0-9]{4}" maxlength="4" placeholder="2015" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">ঠিকানা</label>
+                                <input type="text" id="signupLocation" required placeholder="মিরপুর, ঢাকা" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">ইমেইল <span class="normal-case text-stone-400">(পাসওয়ার্ড উদ্ধারের জন্য, প্রোফাইলে দেখানো হবে না)</span></label>
+                                <input type="email" id="signupEmail" required placeholder="example@gmail.com" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পাসওয়ার্ড</label>
+                                <input type="password" id="signupPassword" required minlength="6" placeholder="••••••••" class="w-full px-3 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-lg shadow-lg transition duration-200 mt-2">সাইন আপ সম্পূর্ণ করুন</button>
+                        </form>
+                        <div class="mt-4 text-center">
+                            <p class="text-sm text-stone-600">একাউন্ট আছে? <button onclick="switchView('login')" class="text-emerald-700 font-bold hover:underline">লগ ইন করুন</button></p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderFeed() {
+            const currentStory = fixedStories[storyIndex].id === 'st1' ? { ...fixedStories[storyIndex], text: todayStoryText() } : fixedStories[storyIndex];
+            const visiblePosts = state.currentUser.isEditor 
+                ? state.posts 
+                : state.posts.filter(p => p.authorPhone !== '+8801770334681');
+
+            return `
+                ${renderNavbar()}
+                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
+                    <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-4 flex items-center justify-between">
+                        <div class="space-y-1 flex-grow pr-3">
+                            <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider">${esc(currentStory.title)} (${storyIndex + 1}/${fixedStories.length})${storiesUpdatedAt && storyIndex > 0 ? ' · ' + timeAgo(storiesUpdatedAt) : ''}</span>
+                            <p class="text-sm text-stone-800 font-medium leading-relaxed whitespace-pre-line">${esc(currentStory.text)}</p>
+                        </div>
+                        <button onclick="nextStory()" class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2.5 rounded-lg text-xs font-bold flex-shrink-0 shadow transition flex items-center space-x-1">
+                            <span>পরবর্তী</span> <i class="fa-solid fa-arrow-right"></i>
+                        </button>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
+                        <div class="flex items-center space-x-3 mb-3">
+                            <img src="${safeUrl(state.currentUser.profilePhoto)}" class="w-10 h-10 rounded-full border border-stone-300 object-cover">
+                            <div>
+                                <h4 class="font-bold text-sm text-stone-800">${esc(state.currentUser.name)}</h4>
+                                <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">${esc(state.currentUser.profession)}</span>
+                            </div>
+                        </div>
+                        <form onsubmit="handleCreatePost(event)" class="space-y-3">
+                            <textarea id="postContent" rows="3" maxlength="5000" placeholder="আজ আপনার মনে কী চলছে? (ছোট বা বড় গল্প লিখুন...)" class="w-full p-3 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm resize-none"></textarea>
+                            <div class="flex items-center justify-between gap-2">
+                                <input type="text" id="postImage" placeholder="ছবির লিংক (URL - Optional)" class="w-2/3 px-3 py-2 rounded-lg border border-stone-200 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                                <button type="submit" class="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-lg text-sm font-semibold shadow transition">পোস্ট করুন</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="space-y-6">
+                        ${visiblePosts.length === 0 ? '<p class="text-center text-stone-500 py-10 text-sm">কোনো পোস্ট পাওয়া যায়নি।</p>' : ''}
+                        ${visiblePosts.map(post => renderPostCard(post)).join('')}
+                        ${state.postsMore ? '<button onclick="loadMorePosts()" class="w-full py-3 rounded-xl bg-white border border-stone-200 text-emerald-800 text-sm font-bold hover:bg-emerald-50 transition">আরও পোস্ট দেখুন</button>' : ''}
+                    </div>
+                </main>
+            `;
+        }
+
+        function nextStory() {
+            storyIndex = (storyIndex + 1) % fixedStories.length;
+            render();
+        }
+
+        function renderPostCard(post, isModal = false) {
+            const isAuthor = post.authorPhone === state.currentUser?.phone;
+            const isAdmin = state.currentUser?.isEditor;
+            const isLong = post.content.length > 180;
+            const displayText = isLong ? post.content.substring(0, 180) + '...' : post.content;
+            
+            if (!post.reactions) post.reactions = { 'Masaallah': [], 'Dua Roilo': [], 'Innalillah': [] };
+            const mCount = post.reactions['Masaallah']?.length || 0;
+            const dCount = post.reactions['Dua Roilo']?.length || 0;
+            const iCount = post.reactions['Innalillah']?.length || 0;
+            const totalReactions = mCount + dCount + iCount;
+            const myReaction = Object.keys(post.reactions).find(key => post.reactions[key].includes(state.currentUser?.phone));
+
+            if (!post.comments) post.comments = [];
+            const visibleComments = state.currentUser.isEditor
+                ? post.comments
+                : post.comments.filter(c => c.authorPhone !== '+8801770334681');
+
+            let commentsToShow = [];
+            if (visibleComments.length > 0) {
+                if (isModal) {
+                    commentsToShow = visibleComments;
+                } else {
+                    commentsToShow = visibleComments.slice(-2);
+                }
+            }
+
+            return `
+                <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-5 relative">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${post.authorPhone}')">
+                            <img src="${safeUrl(post.authorAvatar || getAutoAvatar(post.authorProfession))}" class="w-11 h-11 rounded-full border border-stone-300 object-cover">
+                            <div>
+                                <h3 class="font-bold text-stone-900 hover:text-emerald-700 text-sm">${esc(post.authorName)}</h3>
+                                <div class="flex items-center space-x-2 text-xs text-stone-500">
+                                    <span class="bg-stone-100 text-stone-700 px-2 py-0.5 rounded font-medium">${esc(post.authorProfession)}</span>
+                                    <span>•</span>
+                                    <span>${timeAgo(post.createdAt, post.date)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        ${isAuthor || isAdmin ? `
+                            <div class="relative group/boltu">
+                                <button class="text-stone-400 hover:text-stone-700 p-2 cursor-pointer"><i class="fa-solid fa-gear text-lg"></i></button>
+                                <div class="absolute right-0 mt-1 w-28 bg-white border border-stone-200 rounded-md shadow-lg hidden group-hover/boltu:block z-10 py-1 text-xs">
+                                    ${isAuthor ? `<button onclick="editPost('${post.id}')" class="w-full text-left px-3 py-1.5 hover:bg-stone-100 text-stone-700"><i class="fa-solid fa-pen mr-1"></i> এডিট</button>` : ''}
+                                    ${isAuthor || isAdmin ? `<button onclick="deletePost('${post.id}')" class="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600"><i class="fa-solid fa-trash mr-1"></i> ডিলিট</button>` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <div class="text-stone-800 text-sm leading-relaxed mb-4 whitespace-pre-line">
+                        <span>${esc(isModal ? post.content : displayText)}</span>
+                        ${isLong && !isModal ? `<button onclick="openPostModal('${post.id}')" class="text-emerald-700 font-bold ml-1 hover:underline focus:outline-none text-xs">বিস্তারিত...</button>` : ''}
+                    </div>
+
+                    ${post.image ? `
+                        <div class="mb-4 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 max-h-80 flex items-center justify-center">
+                            <img src="${safeUrl(post.image)}" alt="Post image" class="w-full object-cover max-h-80">
+                        </div>
+                    ` : ''}
+
+                    <div class="flex items-center justify-between text-xs text-stone-500 border-b border-stone-100 pb-2 mb-3">
+                        <div>
+                            ${totalReactions > 0 ? `<span class="font-semibold text-emerald-800">🤲 ${totalReactions}টি প্রতিক্রিয়া</span>` : '<span>কোনো প্রতিক্রিয়া নেই</span>'}
+                        </div>
+                        <div class="space-x-2">
+                            ${mCount > 0 ? `<span>মাশাআল্লাহ (${mCount})</span>` : ''}
+                            ${dCount > 0 ? `<span>দোয়া রইলো (${dCount})</span>` : ''}
+                            ${iCount > 0 ? `<span>ইন্নালিল্লাহ (${iCount})</span>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2 border-b border-stone-100 pb-3 mb-3">
+                        <button onclick="toggleReaction('${post.id}', 'Masaallah')" class="py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${myReaction === 'Masaallah' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}">
+                            <span>🌿</span> <span>মাশাআল্লাহ</span>
+                        </button>
+                        <button onclick="toggleReaction('${post.id}', 'Dua Roilo')" class="py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${myReaction === 'Dua Roilo' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}">
+                            <span>🤲</span> <span>দোয়া রইলো</span>
+                        </button>
+                        <button onclick="toggleReaction('${post.id}', 'Innalillah')" class="py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition ${myReaction === 'Innalillah' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}">
+                            <span>🕊️</span> <span>ইন্নালিল্লাহ</span>
+                        </button>
+                    </div>
+
+                    <div class="space-y-3">
+                        <form onsubmit="handleComment(event, '${post.id}')" class="flex space-x-2">
+                            <input type="text" id="comment-input-${post.id}" placeholder="একটি মন্তব্য করুন..." class="flex-grow px-3 py-2 rounded-lg border border-stone-200 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-xs">
+                            <button type="submit" class="bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-emerald-800 transition">কমেন্ট</button>
+                        </form>
+
+                        <div class="space-y-2 mt-2">
+                            ${commentsToShow.map(c => `
+                                <div class="bg-stone-50 p-2.5 rounded-lg border border-stone-100 text-xs flex justify-between items-center">
+                                    <div>
+                                        <span class="font-bold text-stone-900 mr-2 cursor-pointer hover:text-emerald-700 hover:underline" onclick="viewUserProfile('${c.authorPhone}')">${esc(c.authorName)}</span>
+                                        <span class="text-stone-700">${esc(c.text)}</span>
+                                    </div>
+                                    ${(c.authorPhone === state.currentUser.phone || isAuthor || isAdmin) ? `<button onclick="deleteComment('${post.id}', '${c.id}')" class="text-stone-400 hover:text-rose-600 px-1" title="মন্তব্য মুছুন"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        ${!isModal && visibleComments.length > 2 ? `
+                            <div class="text-center pt-1">
+                                <button onclick="openPostModal('${post.id}')" class="text-emerald-700 font-bold text-xs hover:underline">
+                                    সব কমেন্ট দেখুন (${visibleComments.length}টি) →
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNotifications() {
+            const userNotifs = state.notifications.filter(n => n.recipientPhone === state.currentUser.phone);
+            return `
+                ${renderNavbar()}
+                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold font-serif text-stone-800">বিজ্ঞপ্তি</h2>
+                        ${userNotifs.length > 0 ? `
+                            <button onclick="clearAllNotifications()" class="text-xs bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-rose-200 transition">
+                                সব মুছে ফেলুন
+                            </button>
+                        ` : ''}
+                    </div>
+
+                    <div class="space-y-3">
+                        ${userNotifs.length === 0 ? '<div class="bg-white p-8 rounded-xl shadow-sm text-center text-stone-500 border border-stone-200 text-sm">কোনো বিজ্ঞপ্তি নেই।</div>' : ''}
+                        ${userNotifs.map(n => `
+                            <div class="bg-white p-4 rounded-xl shadow-sm border ${n.isRead ? 'border-stone-200 opacity-80' : 'border-emerald-300 bg-emerald-50/30'} flex justify-between items-center">
+                                <div class="flex items-center space-x-3 cursor-pointer flex-grow" onclick="${n.postId ? `markAsReadAndOpen('${n.id}', '${n.postId}')` : `markAsRead('${n.id}')`}">
+                                    <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold flex-shrink-0">
+                                        <i class="fa-solid fa-comment"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-stone-800">${esc(n.text)}</p>
+                                        <span class="text-[10px] text-stone-400">${timeAgo(n.createdAt, n.date)}</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2 flex-shrink-0 ml-2">
+                                    ${!n.isRead ? `
+                                        <button onclick="markAsRead('${n.id}')" class="text-[11px] bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded font-semibold hover:bg-emerald-200 transition">
+                                            পড়া হয়েছে
+                                        </button>
+                                    ` : '<span class="text-[10px] text-stone-400 italic">পড়া হয়েছে</span>'}
+                                    <button onclick="deleteNotification('${n.id}')" class="text-stone-400 hover:text-rose-600 p-2" title="মুছে ফেলুন">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </main>
+            `;
+        }
+
+        function renderProfile(targetPhone = null) {
+            const user = state.users.find(u => u.phone === (targetPhone || state.currentUser.phone)) || state.currentUser;
+            const userPosts = state.posts.filter(p => p.authorPhone === user.phone);
+            const isOwnProfile = user.phone === state.currentUser.phone;
+
+            return `
+                ${renderNavbar()}
+                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
+                    <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 text-center relative">
+                        <img src="${safeUrl(user.profilePhoto)}" class="w-24 h-24 rounded-full mx-auto border-4 border-emerald-600 shadow-md object-cover mb-4 bg-stone-100">
+                        <h2 class="text-2xl font-bold text-stone-900 font-serif">${esc(user.name)}</h2>
+                        <p class="text-xs text-stone-500 mt-0.5">মোবাইল: ${user.phone}</p>
+                        <span class="inline-block bg-emerald-100 text-emerald-800 text-xs px-3 py-1 rounded-full font-semibold mt-2">${esc(user.profession)}</span>
+                        
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-stone-100 text-center text-xs">
+                            <div>
+                                <span class="block text-[10px] text-stone-400 uppercase font-semibold">বয়স</span>
+                                <span class="font-bold text-stone-800">${esc(user.age)} বছর</span>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] text-stone-400 uppercase font-semibold">ঠিকানা</span>
+                                <span class="font-bold text-stone-800">${esc(user.location)}</span>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] text-stone-400 uppercase font-semibold">এসএসসি ব্যাচ</span>
+                                <span class="font-bold text-stone-800">${esc(user.sscBatch)}</span>
+                            </div>
+                            <div>
+                                <span class="block text-[10px] text-stone-400 uppercase font-semibold">পোস্ট সংখ্যা</span>
+                                <span class="font-bold text-stone-800">${userPosts.length}টি</span>
+                            </div>
+                        </div>
+
+                        ${isOwnProfile ? `
+                            <div class="mt-6 pt-4 border-t border-stone-100 flex flex-wrap justify-center gap-2">
+                                <button onclick="openEditProfileModal()" class="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-2 rounded-lg text-xs font-bold transition">
+                                    <i class="fa-solid fa-pen-to-square mr-1"></i> প্রোফাইল এডিট
+                                </button>
+                                <button onclick="promptChangePhoto()" class="bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-2 rounded-lg text-xs font-bold transition border border-stone-300">
+                                    <i class="fa-solid fa-image mr-1"></i> ছবি পরিবর্তন
+                                </button>
+                                <button onclick="promptChangePassword()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition">
+                                    <i class="fa-solid fa-key mr-1"></i> পাসওয়ার্ড পরিবর্তন
+                                </button>
+                            </div>
+                        ` : ''}
+
+                        ${state.currentUser.isEditor && !isOwnProfile ? `
+                            <div class="mt-4 pt-4 border-t border-stone-100 bg-amber-50 p-3 rounded-lg text-xs text-amber-800 flex justify-between items-center">
+                                <span><strong>অ্যাডমিন ভিউ:</strong> পাসওয়ার্ড নিরাপত্তার জন্য লুকানো</span>
+                                <button onclick="adminDeleteUser('${user.phone}')" class="bg-rose-600 text-white px-3 py-1 rounded font-bold hover:bg-rose-700">ইউজার ডিলিট</button>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <h3 class="text-lg font-bold font-serif mb-4 text-stone-800">${isOwnProfile ? 'আপনার পোস্টসমূহ' : `${esc(user.name)}-এর পোস্টসমূহ`} (${userPosts.length})</h3>
+                    <div class="space-y-6">
+                        ${userPosts.length === 0 ? '<p class="text-center text-stone-500 py-6 bg-white rounded-xl border border-stone-200">কোনো পোস্ট নেই।</p>' : ''}
+                        ${userPosts.map(post => renderPostCard(post)).join('')}
+                        ${state.postsMore ? '<button onclick="loadMorePosts()" class="w-full py-3 rounded-xl bg-white border border-stone-200 text-emerald-800 text-sm font-bold hover:bg-emerald-50 transition">আরও পোস্ট দেখুন</button>' : ''}
+                    </div>
+                </main>
+            `;
+        }
+
+        function renderAllMembers() {
+            const q = (state.memberQuery || '').trim().toLowerCase();
+            const visibleUsers = state.users.filter(u => u.phone !== '+8801770334681' &&
+                (!q || [u.name, u.location, u.sscBatch, u.profession].join(' ').toLowerCase().includes(q)));
+
+            return `
+                ${renderNavbar()}
+                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full">
+                    <h2 class="text-2xl font-bold font-serif mb-6 text-stone-800">সকল সদস্য তালিকা (${visibleUsers.length})</h2>
+                    <input id="memberSearch" type="search" value="${esc(state.memberQuery || '')}" oninput="state.memberQuery = this.value; render()" placeholder="নাম, ঠিকানা, পেশা বা ব্যাচ দিয়ে খুঁজুন" class="w-full mb-4 px-4 py-2.5 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm bg-white">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        ${visibleUsers.map(u => `
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-stone-200 flex items-center justify-between">
+                                <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${u.phone}')">
+                                    <img src="${safeUrl(u.profilePhoto)}" class="w-12 h-12 rounded-full border border-stone-300 object-cover">
+                                    <div>
+                                        <h4 class="font-bold text-sm text-stone-900">${esc(u.name)}</h4>
+                                        <span class="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">${esc(u.profession)}</span>
+                                        <p class="text-[11px] text-stone-400 mt-0.5">ব্যাচ: ${esc(u.sscBatch)} | ${esc(u.location)}</p>
+                                    </div>
+                                </div>
+                                <button onclick="viewUserProfile('${u.phone}')" class="bg-emerald-50 text-emerald-800 hover:bg-emerald-700 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition border border-emerald-200">
+                                    প্রোফাইল দেখুন
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </main>
+            `;
+        }
+
+        function renderEditorPanel() {
+            if (!state.currentUser?.isEditor) return renderFeed();
+
+            const scoredUsers = state.users.filter(u => u.phone !== '+8801770334681').map(u => {
+                const postCount = state.posts.filter(p => p.authorPhone === u.phone).length;
+                let totalReactionsReceived = 0;
+                state.posts.filter(p => p.authorPhone === u.phone).forEach(p => {
+                    totalReactionsReceived += (p.reactions['Masaallah']?.length || 0) + (p.reactions['Dua Roilo']?.length || 0) + (p.reactions['Innalillah']?.length || 0);
+                });
+                const totalCommentsMade = state.posts.reduce((acc, p) => acc + p.comments.filter(c => c.authorPhone === u.phone).length, 0);
+                const performanceScore = (postCount * 10) + (totalReactionsReceived * 5) + (totalCommentsMade * 3);
+                return { ...u, postCount, totalReactionsReceived, totalCommentsMade, performanceScore };
+            }).sort((a, b) => b.performanceScore - a.performanceScore);
+
+            return `
+                ${renderNavbar()}
+                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
+                    <div class="bg-white rounded-2xl shadow-sm border border-amber-300 p-6 space-y-6">
+                        <h2 class="text-2xl font-bold font-serif text-amber-800 flex items-center">
+                            <i class="fa-solid fa-shield-halved mr-2"></i> অ্যাডমিন কন্ট্রোল প্যানেল
+                        </h2>
+                        
+                        <div class="bg-stone-50 p-4 rounded-xl border border-stone-200">
+                            <h3 class="font-bold text-stone-800 text-sm mb-2">বিজ্ঞপ্তি পাঠান (সকলকে বা ব্যক্তিগতভাবে)</h3>
+                            <form onsubmit="handleEditorBroadcast(event)" class="space-y-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">প্রাপক নির্বাচন করুন</label>
+                                    <select id="broadcastTarget" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
+                                        <option value="ALL">সকল সদস্য (All Members)</option>
+                                        ${state.users.filter(u => u.phone !== '+8801770334681').map(u => `<option value="${u.phone}">${esc(u.name)} (${u.phone})</option>`).join('')}
+                                    </select>
+                                </div>
+                                <textarea id="broadcastText" rows="2" placeholder="বিজ্ঞপ্তির বার্তা লিখুন..." class="w-full p-2.5 rounded-lg border border-stone-300 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+                                <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition">বিজ্ঞপ্তি পাঠান</button>
+                            </form>
+                        </div>
+
+                        <div class="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
+                            <div class="flex justify-between items-center flex-wrap gap-2">
+                                <h3 class="font-bold text-stone-800 text-sm"><i class="fa-solid fa-book-open text-amber-700 mr-1"></i> ফিড স্টোরি ম্যানেজমেন্ট</h3>
+                                <button onclick="autoUpdateStoriesFromOnlineLink()" class="bg-teal-700 hover:bg-teal-800 text-white px-3 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow">
+                                    <i class="fa-solid fa-globe"></i> <span>ইন্টারনেট থেকে অটো আপডেট</span>
+                                </button>
+                            </div>
+
+                            <form onsubmit="handleUpdateStories(event)" class="space-y-3 pt-2 border-t border-stone-200">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">স্টোরি নির্বাচন করুন</label>
+                                    <select id="storySelect" onchange="loadStoryTextForEdit(this.value)" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
+                                        ${fixedStories.map((s, i) => `<option value="${i}">${esc(s.title)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">শিরোনাম (Title)</label>
+                                    <input type="text" id="editStoryTitle" value="${esc(fixedStories[0].title)}" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">মূল লেখা (Text)</label>
+                                    <textarea id="editStoryText" rows="3" class="w-full p-2.5 rounded-lg border border-stone-300 text-xs bg-white">${esc(fixedStories[0].text)}</textarea>
+                                </div>
+                                <button type="submit" class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-xs font-bold transition">স্টোরি আপডেট করুন</button>
+                            </form>
+                        </div>
+
+                        <div>
+                            <h3 class="font-bold text-stone-800 text-sm mb-3">শীর্ষ মূল্যবান সদস্য (Top Valuable Members)</h3>
+                            <div class="space-y-2">
+                                ${scoredUsers.map((u, idx) => `
+                                    <div class="flex items-center justify-between p-3 bg-stone-50 rounded-lg text-xs border border-stone-200">
+                                        <div class="flex items-center space-x-3">
+                                            <span class="font-bold text-amber-700 w-5">#${idx + 1}</span>
+                                            <img src="${safeUrl(u.profilePhoto)}" class="w-9 h-9 rounded-full object-cover">
+                                            <div>
+                                                <p class="font-bold text-stone-900">${esc(u.name)} (${u.phone})</p>
+                                                <span class="text-stone-500">ব্যাচ: ${esc(u.sscBatch)} | ${esc(u.profession)}</span>
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="font-bold text-emerald-800 text-sm">স্কোর: ${u.performanceScore}</span>
+                                            <p class="text-[10px] text-stone-400">পোস্ট: ${u.postCount}</p>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            `;
+        }
+
+        function loadStoryTextForEdit(index) {
+            const story = fixedStories[index];
+            document.getElementById('editStoryTitle').value = story.title;
+            document.getElementById('editStoryText').value = story.text;
+        }
+
+        async function handleUpdateStories(event) {
+            event.preventDefault();
+            const index = document.getElementById('storySelect').value;
+            const title = document.getElementById('editStoryTitle').value.trim();
+            const text = document.getElementById('editStoryText').value.trim();
+
+            if (!title || !text) return;
+
+            fixedStories[index].title = title;
+            fixedStories[index].text = text;
+            await saveDataToCloud();
+            alert('স্টোরি সফলভাবে ক্লাউডে আপডেট করা হয়েছে!');
+            render();
+        }
+
+        async function autoUpdateStoriesFromOnlineLink() {
+            const done = await maybeRefreshStories(true);
+            alert(done ? 'ইন্টারনেট থেকে স্টোরি কার্ড আপডেট করা হয়েছে!' : 'আপডেট করা যায়নি, ইন্টারনেট সংযোগ বা সূত্র দেখুন।');
+        }
+
+        function renderPostModal() {
+            if (!state.activeModalPostId) return '';
+            const post = state.posts.find(p => p.id === state.activeModalPostId);
+            if (!post) return '';
+
+            return `
+                <div class="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+                    <div class="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 relative shadow-2xl">
+                        <button onclick="closePostModal()" class="absolute top-4 right-4 text-stone-400 hover:text-stone-700 w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center font-bold">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <h3 class="text-lg font-bold text-emerald-800 mb-4 font-serif">সম্পূর্ণ পোস্ট ও সকল কমেন্ট</h3>
+                        ${renderPostCard(post, true)}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderEditProfileModal() {
+            return `
+                <div id="editProfileModal" class="fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl max-w-md w-full p-6 relative shadow-2xl">
+                        <button onclick="closeEditProfileModal()" class="absolute top-4 right-4 text-stone-400 hover:text-stone-700 w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center font-bold">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <h3 class="text-lg font-bold text-emerald-800 mb-4 font-serif">প্রোফাইল এডিট করুন</h3>
+                        <form onsubmit="handleUpdateProfile(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পূর্ণ নাম</label>
+                                <input type="text" id="editName" value="${esc(state.currentUser.name)}" required class="w-full p-2.5 rounded-lg border border-stone-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">বয়স</label>
+                                <input type="number" id="editAge" value="${esc(state.currentUser.age)}" required class="w-full p-2.5 rounded-lg border border-stone-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">ঠিকানা</label>
+                                <input type="text" id="editLocation" value="${esc(state.currentUser.location)}" required class="w-full p-2.5 rounded-lg border border-stone-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">এসএসসি ব্যাচ (৪ ডিজিট)</label>
+                                <input type="text" id="editBatch" value="${esc(state.currentUser.sscBatch)}" required pattern="[0-9]{4}" maxlength="4" class="w-full p-2.5 rounded-lg border border-stone-300 text-sm">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-lg font-bold text-sm shadow">সংরক্ষণ করুন</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function switchView(view) {
+            state.currentView = view;
+            state.activeModalPostId = null;
+            state.viewingProfilePhone = null;
+            render();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function handleSignup(event) {
+            event.preventDefault();
+            const name = document.getElementById('signupName').value.trim();
+            const rawPhone = document.getElementById('signupPhone').value.trim();
+            const profession = document.getElementById('signupProfession').value;
+            const age = document.getElementById('signupAge').value;
+            const location = document.getElementById('signupLocation').value.trim();
+            const sscBatch = document.getElementById('signupBatch').value.trim();
+            const password = document.getElementById('signupPassword').value;
+            const email = document.getElementById('signupEmail').value.trim().toLowerCase();
+
+            if (!/^1[0-9]{9}$/.test(rawPhone)) { alert('মোবাইল নম্বর অবশ্যই 1 দিয়ে শুরু এবং মোট ১০ ডিজিটের হতে হবে (+880 বাদে)!'); return; }
+            if (!/^[0-9]{4}$/.test(sscBatch)) { alert('এসএসসি ব্যাচ অবশ্যই ৪ ডিজিটের হতে হবে!'); return; }
+
+            const phone = '+880' + rawPhone;
+            state.signingUp = true;
+            let cred;
+            try {
+                cred = await auth.createUserWithEmailAndPassword(email, password);
+            } catch (e) {
+                state.signingUp = false;
+                const m = { 'auth/email-already-in-use': 'এই ইমেইল ইতিমধ্যে ব্যবহৃত হয়েছে!', 'auth/invalid-email': 'ইমেইল সঠিক নয়!', 'auth/weak-password': 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের দিন!' };
+                alert(m[e.code] || 'একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।');
+                return;
+            }
+            const uid = cred.user.uid;
+            cred.user.sendEmailVerification().catch(() => {});
+            const newUser = { uid, name, phone, profession, age, location, sscBatch, profilePhoto: getAutoAvatar() };
+            try {
+                const b = db.batch();
+                b.set(db.collection('phones').doc('880' + rawPhone), { uid, email });
+                b.set(db.collection('users').doc(uid), newUser);
+                await b.commit();
+            } catch (e) {
+                await cred.user.delete().catch(() => {});
+                state.signingUp = false;
+                alert('এই মোবাইল নম্বরে ইতিমধ্যেই একটি আইডি রেজিস্টার্ড রয়েছে!');
+                return;
+            }
+            const nid = 'n_' + Date.now();
+            await db.collection('notifications').doc(nid).set({
+                id: nid, recipientPhone: phone, text: 'স্বাগতম উঠান প্ল্যাটফর্মে! আমাদের পরিবারে আপনাকে স্বাগতম।',
+                isRead: false, isEditorBroadcast: false, date: 'এইমাত্র', createdAt: Date.now()
+            }).catch(() => {});
+            state.signingUp = false;
+        }
+
+        async function lookupEmail(rawPhone) {
+            try {
+                const d = await db.collection('phones').doc('880' + rawPhone).get();
+                return d.exists ? d.data().email : null;
+            } catch (e) { return null; }
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const rawPhone = document.getElementById('loginPhone').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            if (!/^1[0-9]{9}$/.test(rawPhone)) { alert('সঠিক ১০ ডিজিটের মোবাইল নম্বর দিন (1 দিয়ে শুরু)!'); return; }
+            const email = await lookupEmail(rawPhone);
+            try {
+                if (!email) throw new Error('no-user');
+                await auth.signInWithEmailAndPassword(email, password);
+            } catch (e) {
+                alert('মোবাইল নম্বর অথবা পাসওয়ার্ড ভুল হয়েছে!');
+            }
+        }
+
+        function logout() {
+            stopListeners();
+            auth.signOut().catch(() => {});
+            state.currentUser = null;
+            localStorage.removeItem('uthan_current_user');
+            switchView('login');
+        }
+
+        async function recoverPasswordPrompt() {
+            const raw = (prompt('আপনার মোবাইল নম্বর দিন (+880 ছাড়া, 1 দিয়ে শুরু ১০ ডিজিট):') || '').trim();
+            if (!raw) return;
+            if (!/^1[0-9]{9}$/.test(raw)) { alert('সঠিক ১০ ডিজিটের নম্বর দিন!'); return; }
+            const email = await lookupEmail(raw);
+            if (email) { try { await auth.sendPasswordResetEmail(email); } catch (e) { console.error(e); } }
+            alert('যদি এই নম্বরের একাউন্ট থাকে, তাহলে পাসওয়ার্ড রিসেট লিংক ইমেইলে পাঠানো হয়েছে। ইনবক্স ও স্পাম ফোল্ডার দেখুন।');
+        }
+
+        async function handleCreatePost(event) {
+            event.preventDefault();
+            const content = document.getElementById('postContent').value.trim();
+            const image = document.getElementById('postImage').value.trim();
+            if (!content && !image) return;
+
+            const newPost = {
+                id: 'p_' + Date.now(),
+                authorPhone: state.currentUser.phone,
+                authorName: state.currentUser.name,
+                authorProfession: state.currentUser.profession,
+                authorAvatar: state.currentUser.profilePhoto,
+                content,
+                image,
+                date: 'এইমাত্র', createdAt: Date.now(),
+                reactions: { 'Masaallah': [], 'Dua Roilo': [], 'Innalillah': [] },
+                comments: []
+            };
+
+            state.posts.unshift(newPost);
+            document.getElementById('postContent').value = '';
+            document.getElementById('postImage').value = '';
+            await saveDataToCloud();
+            render();
+        }
+
+        async function editPost(postId) {
+            const post = state.posts.find(p => p.id === postId);
+            if (!post) return;
+            const newContent = prompt('আপনার পোস্ট এডিট করুন:', post.content);
+            if (newContent !== null) {
+                post.content = newContent.trim();
+                await saveDataToCloud();
+                render();
+            }
+        }
+
+        async function deletePost(postId) {
+            if (confirm('আপনি কি নিশ্চিত এই পোস্টটি ডিলিট করতে চান?')) {
+                state.posts = state.posts.filter(p => p.id !== postId);
+                await saveDataToCloud();
+                render();
+            }
+        }
+
+        async function toggleReaction(postId, reactionType) {
+            const post = state.posts.find(p => p.id === postId);
+            if (!post) return;
+
+            const alreadySelected = post.reactions[reactionType].includes(state.currentUser.phone);
+
+            Object.keys(post.reactions).forEach(type => {
+                post.reactions[type] = post.reactions[type].filter(phone => phone !== state.currentUser.phone);
+            });
+
+            if (!alreadySelected) {
+                post.reactions[reactionType].push(state.currentUser.phone);
+            }
+
+            await saveDataToCloud();
+            render();
+        }
+
+        async function handleComment(event, postId) {
+            event.preventDefault();
+            const input = document.getElementById(`comment-input-${postId}`);
+            const text = input.value.trim();
+            if (!text) return;
+
+            const post = state.posts.find(p => p.id === postId);
+            if (!post) return;
+
+            const newComment = {
+                id: 'c_' + Date.now(),
+                authorPhone: state.currentUser.phone,
+                authorName: state.currentUser.name,
+                text
+            };
+
+            post.comments.push(newComment);
+
+            if (post.authorPhone !== state.currentUser.phone) {
+                state.notifications.unshift({
+                    id: 'n_' + Date.now(),
+                    recipientPhone: post.authorPhone,
+                    postId: post.id,
+                    text: `${state.currentUser.name} আপনার পোস্টে মন্তব্য করেছেন।`,
+                    isRead: false,
+                    isEditorBroadcast: false,
+                    date: 'এইমাত্র', createdAt: Date.now()
+                });
+            }
+
+            await saveDataToCloud();
+            input.value = '';
+            render();
+            if (state.activeModalPostId) state.activeModalPostId = postId;
+        }
+
+        async function deleteComment(postId, commentId) {
+            const post = state.posts.find(p => p.id === postId);
+            if (!post || !confirm('মন্তব্যটি মুছে ফেলবেন?')) return;
+            post.comments = (post.comments || []).filter(c => c.id !== commentId);
+            await saveDataToCloud();
+            render();
+        }
+
+        async function clearAllNotifications() {
+            state.notifications = state.notifications.filter(n => n.recipientPhone !== state.currentUser.phone);
+            await saveDataToCloud();
+            render();
+        }
+
+        async function deleteNotification(notifId) {
+            state.notifications = state.notifications.filter(n => n.id !== notifId);
+            await saveDataToCloud();
+            render();
+        }
+
+        async function markAsRead(notifId) {
+            const notif = state.notifications.find(n => n.id === notifId);
+            if (notif) {
+                notif.isRead = true;
+                await saveDataToCloud();
+                render();
+            }
+        }
+
+        function markAsReadAndOpen(notifId, postId) {
+            markAsRead(notifId);
+            openPostModal(postId);
+        }
+
+        function openPostModal(postId) {
+            state.activeModalPostId = postId;
+            render();
+        }
+
+        function closePostModal() {
+            state.activeModalPostId = null;
+            render();
+        }
+
+        function viewMyProfile() {
+            state.viewingProfilePhone = state.currentUser.phone;
+            state.currentView = 'profile';
+            render();
+        }
+
+        function viewUserProfile(phone) {
+            state.viewingProfilePhone = phone;
+            state.currentView = 'profile';
+            render();
+        }
+
+        async function promptChangePhoto() {
+            const url = prompt('আপনার প্রোফাইল ছবির সঠিক ইমেজ লিংক (URL) দিন:');
+            if (!url || !url.trim()) return;
+            state.currentUser.profilePhoto = url.trim();
+            const u = state.users.find(x => x.phone === state.currentUser.phone);
+            if (u) u.profilePhoto = state.currentUser.profilePhoto;
+            await saveDataToCloud();
+            render();
+        }
+
+        async function promptChangePassword() {
+            const cur = prompt('আপনার বর্তমান পাসওয়ার্ড দিন:');
+            if (!cur) return;
+            try { await auth.signInWithEmailAndPassword(auth.currentUser.email, cur); } catch (e) { alert('বর্তমান পাসওয়ার্ড ভুল হয়েছে!'); return; }
+            const np = (prompt('নতুন পাসওয়ার্ড দিন (কমপক্ষে ৬ অক্ষর):') || '').trim();
+            if (np.length < 6) { if (np) alert('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!'); return; }
+            try { await auth.currentUser.updatePassword(np); alert('পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!'); } catch (e) { alert('পাসওয়ার্ড পরিবর্তন করা যায়নি, আবার চেষ্টা করুন।'); }
+        }
+
+        function openEditProfileModal() {
+            const div = document.createElement('div');
+            div.innerHTML = renderEditProfileModal();
+            document.body.appendChild(div.firstElementChild);
+        }
+
+        function closeEditProfileModal() {
+            const modal = document.getElementById('editProfileModal');
+            if (modal) modal.remove();
+        }
+
+        async function handleUpdateProfile(event) {
+            event.preventDefault();
+            const sscBatch = document.getElementById('editBatch').value.trim();
+
+            if (!/^[0-9]{4}$/.test(sscBatch)) {
+                alert('এসএসসি ব্যাচ অবশ্যই ৪ ডিজিটের হতে হবে!');
+                return;
+            }
+
+            state.currentUser.name = document.getElementById('editName').value.trim();
+            state.currentUser.age = document.getElementById('editAge').value.trim();
+            state.currentUser.location = document.getElementById('editLocation').value.trim();
+            state.currentUser.sscBatch = sscBatch;
+
+            const u = state.users.find(x => x.phone === state.currentUser.phone);
+            if (u) {
+                u.name = state.currentUser.name;
+                u.age = state.currentUser.age;
+                u.location = state.currentUser.location;
+                u.sscBatch = state.currentUser.sscBatch;
+            }
+
+            await saveDataToCloud();
+            closeEditProfileModal();
+            render();
+        }
+
+        async function adminDeleteUser(phone) {
+            if (confirm(`অ্যাডমিন এক্সেস: আপনি কি নিশ্চিত এই ইউজার (${phone}) এবং তার সমস্ত ডাটা মুছে ফেলতে চান?`)) {
+                db.collection('phones').doc(phone.replace('+', '')).delete().catch(() => {});
+                state.users = state.users.filter(u => u.phone !== phone);
+                state.posts = state.posts.filter(p => p.authorPhone !== phone);
+                await saveDataToCloud();
+                switchView('all_members');
+            }
+        }
+
+        async function handleEditorBroadcast(event) {
+            event.preventDefault();
+            const target = document.getElementById('broadcastTarget').value;
+            const text = document.getElementById('broadcastText').value.trim();
+            if (!text) return;
+
+            if (target === 'ALL') {
+                state.users.forEach(u => {
+                    state.notifications.unshift({
+                        id: 'nb_' + Date.now() + '_' + u.phone,
+                        recipientPhone: u.phone,
+                        text: `[অ্যাডমিন ঘোষণা]: ${text}`,
+                        isRead: false,
+                        isEditorBroadcast: true,
+                        date: 'এইমাত্র', createdAt: Date.now()
+                    });
+                });
+            } else {
+                state.notifications.unshift({
+                    id: 'nb_' + Date.now(),
+                    recipientPhone: target,
+                    text: `[ব্যক্তিগত অ্যাডমিন বার্তা]: ${text}`,
+                    isRead: false,
+                    isEditorBroadcast: true,
+                    date: 'এইমাত্র', createdAt: Date.now()
+                });
+            }
+
+            document.getElementById('broadcastText').value = '';
+            await saveDataToCloud();
+            alert('বিজ্ঞপ্তি সফলভাবে পাঠানো হয়েছে!');
+            render();
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            if (!state.authReady) { app.innerHTML = '<div class="min-h-screen flex items-center justify-center text-stone-500 text-sm">লোড হচ্ছে...</div>'; return; }
+            let contentHTML = '';
+
+            if (!state.currentUser) {
+                if (state.currentView === 'signup') {
+                    contentHTML = renderSignup();
+                } else {
+                    contentHTML = renderLogin();
+                }
+            } else {
+                switch (state.currentView) {
+                    case 'feed':
+                        contentHTML = renderFeed();
+                        break;
+                    case 'notifications':
+                        contentHTML = renderNotifications();
+                        break;
+                    case 'profile':
+                        contentHTML = renderProfile(state.viewingProfilePhone);
+                        break;
+                    case 'all_members':
+                        contentHTML = renderAllMembers();
+                        break;
+                    case 'editor_panel':
+                        contentHTML = renderEditorPanel();
+                        break;
+                    default:
+                        contentHTML = renderFeed();
+                }
+            }
+
+            contentHTML += renderPostModal();
+            // Keep what the user is typing when a live update re-renders the page
+            const saved = {};
+            app.querySelectorAll('#postContent, #postImage, [id^="comment-input-"]').forEach(el => { if (el.value) saved[el.id] = el.value; });
+            const a = document.activeElement;
+            const focusId = a && app.contains(a) ? a.id : null;
+            const pos = a ? a.selectionStart : null;
+            app.innerHTML = contentHTML;
+            Object.keys(saved).forEach(id => { const el = document.getElementById(id); if (el && !el.value) el.value = saved[id]; });
+            if (focusId) {
+                const el = document.getElementById(focusId);
+                if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
+            }
+        }
+
+
+    </script>
+
+
+</body>
+</html>
