@@ -19,22 +19,22 @@
             background-color: #fafafa;
             color: #171717;
         }
-        .fade-in { animation: fi .2s ease-out both; }
-        @keyframes fi { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
         .clean-card {
             background: #ffffff;
             border: 1px solid #e5e5e5;
             border-radius: 16px;
-            transition: border-color .15s ease, box-shadow .15s ease;
         }
-        .clean-card:hover {
-            border-color: #a7f3d0;
-            box-shadow: 0 4px 16px -6px rgba(16, 185, 129, 0.12);
-        }
-        .soft-green-card {
+        .soft-green-box {
             background: #f0fdf4;
             border: 1px solid #bbf7d0;
             border-radius: 16px;
+        }
+        .tabular-nums {
+            font-variant-numeric: tabular-nums;
+        }
+        @keyframes popupShrink {
+            from { width: 100%; }
+            to { width: 0%; }
         }
     </style>
 </head>
@@ -60,9 +60,9 @@
         const auth = firebase.auth();
 
         const EDITOR_EMAIL = "alamin55432@gmail.com";
-        const NEWS_TTL = 60 * 60 * 1000;      // ১ ঘণ্টা পরপর সংবাদ রিফ্রেশ
-        const OTHER_TTL = 6 * 60 * 60 * 1000; // ৬ ঘণ্টা পরপর কুরআন/হাদিস রিফ্রেশ
-        const CACHE_KEY = "uthan_live_stories_v2";
+        const NEWS_TTL = 60 * 60 * 1000;      // ১ ঘণ্টা পরপর সংবাদ আপডেট
+        const OTHER_TTL = 6 * 60 * 60 * 1000; // ৬ ঘণ্টা পরপর কুরআন ও হাদিস আপডেট
+        const CACHE_KEY = "uthan_live_cards_v4";
 
         const professions = [
             "কৃষক", "ছাত্র", "শিক্ষক", "প্রকৌশলী",
@@ -84,13 +84,47 @@
             ["সোনায় সোহাগা।", "ভালোর সাথে আরও ভালোর মিলন।"]
         ];
 
-        // ডিফল্ট ও ক্যাশড স্টোরি ডাটা (তাৎক্ষণিক লোডের জন্য)
+        // ১১৪টি সূরার বিশুদ্ধ বাংলা নাম
+        const SURAH_NAMES_BN = [
+            "", "আল-ফাতিহা", "আল-বাকারা", "আলে ইমরান", "আন-নিসা", "আল-মায়িদাহ", "আল-আনআম", "আল-আরাফ", "আল-আনফাল", "আত-তাওবাহ", "ইউনুস",
+            "হুদ", "ইউসুফ", "আর-রাদ", "ইবরাহীম", "আল-হিজর", "আন-নাহল", "বনী ইসরাঈল", "আল-কাহফ", "মারইয়াম", "ত্বা-হা",
+            "আল-আম্বিয়া", "আল-হাজ্জ", "আল-মুমিনুন", "আন-নূর", "আল-ফুরকান", "আশ-শুআরা", "আন-নামল", "আল-কাসাস", "আল-আনকাবুত", "আর-রূম",
+            "লুকমান", "আস-সাজদাহ", "আল-আহযাব", "সাবা", "ফাতির", "ইয়াসীন", "আস-সাফফাত", "সোয়াদ", "আয-যুমার", "গাফির",
+            "হা-মীম সাজদাহ", "আশ-শূরা", "আয-যুখরুফ", "আদ-দুখান", "আল-জাসিয়াহ", "আল-আহকাফ", "মুহাম্মদ", "আল-ফাতহ", "আল-হুজুরাত", "ক্বাফ",
+            "আয-যারিয়াত", "আত-তূর", "আন-নাজম", "আল-ক্বামার", "আর-রাহমান", "আল-ওয়াকিয়াহ", "আল-হাদীদ", "আল-মুজাদালাহ", "আল-হাশর", "আল-মুমতাহিনাহ",
+            "আস-সাফ", "আল-জুমুআহ", "আল-মুনাফিকুন", "আত-তাগাবুন", "আত-তালাক", "আত-তাহরীম", "আল-মুলক", "আল-ক্বালাম", "আল-হাক্কাহ", "আল-মাআরিজ",
+            "নূহ", "আল-জিন", "আল-মুযযাম্মিল", "আল-মুদ্দাসসির", "আল-কিয়ামাহ", "আদ-দাহর", "আল-মুরসালাত", "আন-নাবা", "আন-নাযিআত", "আবাসা",
+            "আত-তাকভীর", "আল-ইনফিতার", "আল-মুতাফফিফীন", "আল-ইনশিকাক", "আল-বুরূজ", "আত-তারিক", "আল-আলা", "আল-গাশিয়াহ", "আল-ফাজর", "আল-বালাদ",
+            "আশ-শামস", "আল-লাইল", "আদ-দুহা", "আল-ইনশিরাহ", "আল-তীন", "আল-আলাক", "আল-ক্বদর", "আল-বাইয়্যিনাহ", "আয-যিলযাল", "আল-আদিয়াত",
+            "আল-ক্বারিয়াহ", "আত-তাকাসুর", "আল-আসর", "আল-হুমাযাহ", "আল-ফীল", "কুরাইশ", "আল-মাউন", "আল-কাওসার", "আল-কাফিরুন", "আন-নাসর",
+            "আল-লাহাব", "আল-ইখলাস", "আল-ফালাক", "আন-নাস"
+        ];
+
+        const BENGALI_QURAN_FALLBACK = [
+            "“হে মুমিনগণ! তোমরা ধৈর্য ও সালাতের মাধ্যমে সাহায্য প্রার্থনা করো। নিশ্চয়ই আল্লাহ ধৈর্যশীলদের সাথে আছেন।”\n— সূরা আল-বাকারা (২), আয়াত নং: ১৫৩",
+            "“নিশ্চয়ই কষ্টের সাথেই স্বস্তি রয়েছে। নিশ্চয়ই কষ্টের সাথেই স্বস্তি রয়েছে।”\n— সূরা আল-ইনশিরাহ (৯৪), আয়াত নং: ৫-৬",
+            "“তোমরা আমাকে স্মরণ করো, আমিও তোমাদের স্মরণ করব। আর আমার কৃতজ্ঞতা প্রকাশ করো, অকৃতজ্ঞ হয়ো না।”\n— সূরা আল-বাকারা (২), আয়াত নং: ১৫২",
+            "“আল্লাহ কারো ওপর তার সাধ্যের অতিরিক্ত বোঝা চাপিয়ে দেন না।”\n— সূরা আল-বাকারা (২), আয়াত নং: ২৮৬"
+        ];
+
+        const BENGALI_HADITH_FALLBACK = [
+            "“তোমাদের মধ্যে সেই ব্যক্তিই সর্বোত্তম, যে নিজে কুরআন শিক্ষা করে এবং অপরকে তা শিক্ষা দেয়।”\n— সহীহ বুখারী, হাদিস নং: ৫০২৭",
+            "“সমস্ত আমল নিয়তের ওপর নির্ভরশীল। আর প্রত্যেক ব্যক্তি তাই পাবে, যা সে নিয়ত করবে।”\n— সহীহ বুখারী, হাদিস নং: ১",
+            "“প্রকৃত মুসলিম সেই ব্যক্তি, যার জিহ্বা ও হাত থেকে অন্য মুসলিম নিরাপদ থাকে।”\n— সহীহ বুখারী, হাদিস নং: ১০",
+            "“তোমাদের কেউ প্রকৃত মুমিন হতে পারবে না, যতক্ষণ না সে নিজের জন্য যা পছন্দ করে তার ভাইয়ের জন্যও তাই পছন্দ করে।”\n— সহীহ বুখারী, হাদিস নং: ১৩",
+            "“যে ব্যক্তি আল্লাহ ও শেষ দিবসের প্রতি ঈমান রাখে, সে যেন উত্তম কথা বলে অথবা চুপ থাকে।”\n— সহীহ বুখারী, হাদিস নং: ৬০১৮",
+            "“পবিত্রতা ঈমানের অর্ধেক। আর ‘আলহামদুলিল্লাহ’ পাল্লাকে পরিপূর্ণ করে দেয়।”\n— সহীহ মুসলিম, হাদিস নং: ২২৩"
+        ];
+
+        const hasBengaliScript = str => /[\u0980-\u09FF]/.test(String(str || ''));
+
+        // ৫টি লাইভ কার্ড (সম্পূর্ণ বাংলা লেখা)
         let fixedStories = [
-            { id: 'st1', title: 'আজকের তারিখ ও স্ট্যান্ডার্ড সময়', text: '' },
-            { id: 'st2', title: 'আজকের পূর্ণ কুরআন আয়াত', text: '“হে মুমিনগণ! তোমরা ধৈর্য ও সালাতের মাধ্যমে সাহায্য প্রার্থনা করো। নিশ্চয়ই আল্লাহ ধৈর্যশীলদের সাথে আছেন।”\n— সূরা আল-বাকারা (২), আয়াত: ১৫৩' },
-            { id: 'st3', title: 'আজকের পূর্ণ হাদিস', text: '“তোমাদের মধ্যে সেই ব্যক্তিই সর্বোত্তম, যে নিজে কুরআন শিক্ষা করে এবং অপরকে তা শিক্ষা দেয়।”\n— সহীহ বুখারী, হাদিস নং: ৫০২৭' },
+            { id: 'st1', title: 'আজকের তারিখ ও সময়', text: '' },
+            { id: 'st2', title: 'আজকের কুরআন আয়াত', text: BENGALI_QURAN_FALLBACK[0] },
+            { id: 'st3', title: 'আজকের হাদিস', text: BENGALI_HADITH_FALLBACK[0] },
             { id: 'st4', title: 'বাংলার প্রবাদ', text: '' },
-            { id: 'st5', title: 'সর্বশেষ সংবাদ', text: 'সর্বশেষ সংবাদ লোড হচ্ছে...' }
+            { id: 'st5', title: 'সর্বশেষ সংবাদ', text: '• দেশের সর্বশেষ গুরুত্বপূর্ণ সংবাদ ও সমসাময়িক আপডেট\n• শিক্ষা, কৃষি ও প্রযুক্তিতে এগিয়ে যাচ্ছে বাংলাদেশ\n— সূত্র: বাংলা সংবাদ ডেস্ক' }
         ];
 
         let storyIndex = 0;
@@ -98,12 +132,17 @@
         let newsUpdatedAt = 0;
         let storyBusy = false;
         let newsBusy = false;
+        let popupAutoCloseTimer = null;
 
-        // লোকাল ক্যাশ থেকে তাৎক্ষণিক ডাটা লোড
+        // লোকাল ক্যাশ থেকে তাৎক্ষণিক লোড
         try {
             const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-            if (cached && Array.isArray(cached.items)) {
-                fixedStories = cached.items;
+            if (cached && Array.isArray(cached.items) && cached.items.length === 5) {
+                cached.items.forEach((item, idx) => {
+                    if (item && hasBengaliScript(item.title) && (idx === 0 || idx === 3 || hasBengaliScript(item.text))) {
+                        fixedStories[idx] = item;
+                    }
+                });
                 otherUpdatedAt = cached.otherUpdatedAt || 0;
                 newsUpdatedAt = cached.newsUpdatedAt || 0;
             }
@@ -147,47 +186,6 @@
         };
         const byNewest = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
 
-        // কাস্টম মেসেজ বক্স (alert ও confirm এর পরিবর্তে)
-        function showToast(msg, isError = false) {
-            const old = document.getElementById('uthan-toast');
-            if (old) old.remove();
-            const div = document.createElement('div');
-            div.id = 'uthan-toast';
-            div.className = `fixed bottom-5 right-5 z-[100] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2.5 fade-in ${
-                isError ? 'bg-white border-rose-300 text-rose-700' : 'bg-neutral-900 border-neutral-800 text-white'
-            }`;
-            div.innerHTML = `
-                <i class="fa-solid ${isError ? 'fa-circle-exclamation text-rose-600' : 'fa-circle-check text-emerald-400'}"></i>
-                <span>${esc(msg)}</span>
-            `;
-            document.body.appendChild(div);
-            setTimeout(() => { if (div.parentNode) div.remove(); }, 3500);
-        }
-
-        function showConfirmModal(message, onConfirm) {
-            const old = document.getElementById('uthan-confirm');
-            if (old) old.remove();
-            const wrap = document.createElement('div');
-            wrap.id = 'uthan-confirm';
-            wrap.className = 'fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-[90] flex items-center justify-center p-4';
-            wrap.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-sm w-full p-6 shadow-xl fade-in">
-                    <h4 class="font-bold text-neutral-900 text-base mb-2">নিশ্চিত করুন</h4>
-                    <p class="text-sm text-neutral-600 mb-5">${esc(message)}</p>
-                    <div class="flex justify-end gap-2">
-                        <button id="conf-cancel" class="px-4 py-2 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-semibold">বাতিল</button>
-                        <button id="conf-ok" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold">হ্যাঁ, নিশ্চিত</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(wrap);
-            document.getElementById('conf-cancel').onclick = () => wrap.remove();
-            document.getElementById('conf-ok').onclick = () => {
-                wrap.remove();
-                onConfirm();
-            };
-        }
-
         function esc(v) {
             return String(v ?? '').replace(/[&<>"']/g, c => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -195,7 +193,7 @@
         }
 
         function safeUrl(u) {
-            u = String(u || '').trim();
+            u = String(u || '');
             if (u.startsWith('data:image/')) return esc(u);
             try {
                 const x = new URL(u);
@@ -204,13 +202,76 @@
         }
 
         const bnNum = n => Number(n).toLocaleString('bn-BD', { useGrouping: false });
+        const toBnDigits = str => String(str).replace(/\d/g, d => '০১২৩৪৫৬৭৮৯'[d]);
         const clip = (t, n) => {
             t = String(t || '').replace(/\s+/g, ' ').trim();
             return t.length > n ? t.slice(0, n - 1) + '…' : t;
         };
 
+        function showToast(msg, isError = false) {
+            const old = document.getElementById('uthan-toast');
+            if (old) old.remove();
+            const el = document.createElement('div');
+            el.id = 'uthan-toast';
+            el.className = `fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-xl text-xs font-semibold shadow-lg border ${
+                isError
+                    ? 'bg-neutral-900 text-white border-rose-500'
+                    : 'bg-neutral-900 text-emerald-100 border-emerald-700'
+            }`;
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => { if (el.parentNode) el.remove(); }, 3200);
+        }
+
+        function showPromptModal({ title, placeholder = '', type = 'text', defaultValue = '', confirmLabel = 'সংরক্ষণ' }) {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-[90] flex items-center justify-center p-4';
+                overlay.innerHTML = `
+                    <div class="bg-white border border-neutral-200 rounded-2xl max-w-sm w-full p-5 shadow-xl">
+                        <h3 class="text-base font-bold text-neutral-900 mb-3">${esc(title)}</h3>
+                        <input id="customPromptInput" type="${esc(type)}" value="${esc(defaultValue)}" placeholder="${esc(placeholder)}" class="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm mb-4">
+                        <div class="flex justify-end gap-2">
+                            <button type="button" id="customPromptCancel" class="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold">বাতিল</button>
+                            <button type="button" id="customPromptOk" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">${esc(confirmLabel)}</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                const input = overlay.querySelector('#customPromptInput');
+                input.focus();
+                const close = val => { overlay.remove(); resolve(val); };
+                overlay.querySelector('#customPromptCancel').onclick = () => close(null);
+                overlay.querySelector('#customPromptOk').onclick = () => close(input.value);
+                input.onkeydown = e => {
+                    if (e.key === 'Enter') { e.preventDefault(); close(input.value); }
+                    if (e.key === 'Escape') close(null);
+                };
+            });
+        }
+
+        function showConfirmModal(message, confirmLabel = 'হ্যাঁ, নিশ্চিত') {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-[90] flex items-center justify-center p-4';
+                overlay.innerHTML = `
+                    <div class="bg-white border border-neutral-200 rounded-2xl max-w-sm w-full p-5 shadow-xl">
+                        <p class="text-sm font-semibold text-neutral-800 mb-4 leading-relaxed">${esc(message)}</p>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" id="confirmNo" class="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold">না</button>
+                            <button type="button" id="confirmYes" class="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold">${esc(confirmLabel)}</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+                const close = val => { overlay.remove(); resolve(val); };
+                overlay.querySelector('#confirmNo').onclick = () => close(false);
+                overlay.querySelector('#confirmYes').onclick = () => close(true);
+            });
+        }
+
         function getAutoAvatar() {
-            const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#dcfce7"/><circle cx="48" cy="38" r="17" fill="#16a34a"/><path d="M14 96c2-22 18-32 34-32s32 10 34 32z" fill="#16a34a"/></svg>';
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#dcfce7"/><circle cx="48" cy="38" r="17" fill="#15803d"/><path d="M14 96c2-22 18-32 34-32s32 10 34 32z" fill="#15803d"/></svg>';
             return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
         }
 
@@ -232,11 +293,11 @@
             return new Date(ts).toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric' });
         }
 
-        // ২. বাংলাদেশ স্ট্যান্ডার্ড টাইম ও সঠিক খ্রিস্টাব্দ, বাংলা সন, হিজরি মাসের নাম
+        // বাংলাদেশ স্ট্যান্ডার্ড সময় (BST, UTC+6)
         function getBangladeshDateObj() {
             const now = new Date();
-            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-            return new Date(utc + (6 * 3600000)); // UTC+6 (BST)
+            const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+            return new Date(utcMs + (6 * 3600000));
         }
 
         function getStandardTimeBD() {
@@ -250,16 +311,14 @@
             else if (h >= 12 && h < 15) period = 'দুপুর';
             else if (h >= 15 && h < 18) period = 'বিকাল';
             else if (h >= 18 && h < 20) period = 'সন্ধ্যা';
-
             const h12 = h % 12 || 12;
-            const toBnDigits = str => str.replace(/\d/g, digit => '০১২৩৪৫৬৭৮৯'[digit]);
-            return `${period} ${toBnDigits(String(h12))}:${toBnDigits(m)}:${toBnDigits(s)} (BST)`;
+            return `${period} ${toBnDigits(h12)}:${toBnDigits(m)}:${toBnDigits(s)} (বাংলাদেশ সময়)`;
         }
 
+        // সঠিক বাংলা সন (সংশোধিত বাংলা বর্ষপঞ্জি)
         function banglaDate(d = getBangladeshDateObj()) {
             const y = d.getFullYear();
             let sy = y, by = y - 593;
-            // পহেলা বৈশাখ ১৪ এপ্রিল থেকে শুরু (সংশোধিত বাংলা একাডেমি বর্ষপঞ্জি)
             if (Date.UTC(y, d.getMonth(), d.getDate()) < Date.UTC(y, 3, 14)) {
                 sy = y - 1;
                 by = y - 594;
@@ -267,7 +326,6 @@
             let off = Math.round((Date.UTC(y, d.getMonth(), d.getDate()) - Date.UTC(sy, 3, 14)) / 864e5);
             const ny = sy + 1;
             const leap = (ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0;
-            // বৈশাখ থেকে আশ্বিন ৩১ দিন, কার্তিক থেকে মাঘ ৩০ দিন, ফাল্গুন ২৯/৩০ দিন, চৈত্র ৩০ দিন
             const lens = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, leap ? 30 : 29, 30];
             const names = ['বৈশাখ', 'জ্যৈষ্ঠ', 'আষাঢ়', 'শ্রাবণ', 'ভাদ্র', 'আশ্বিন', 'কার্তিক', 'অগ্রহায়ণ', 'পৌষ', 'মাঘ', 'ফাল্গুন', 'চৈত্র'];
             let m = 0;
@@ -275,56 +333,54 @@
             return `${bnNum(off + 1)} ${names[m]} ${bnNum(by)} বাংলা সন`;
         }
 
+        // সঠিক হিজরি তারিখ ও বাংলায় আরবি মাসের নাম
         function hijriDateBD(d = getBangladeshDateObj()) {
-            // বাংলাদেশের চাঁদ দেখা অনুযায়ী সাধারণত সৌদি উম্মুল কুরা থেকে ১ দিন পার্থক্য সমন্বয়
             const bdDay = new Date(d.getTime() - 864e5);
-            const hijriMonthsBn = {
-                'Muharram': 'মুহররম',
-                'Safar': 'সফর',
-                'Rabiʻ I': 'রবিউল আউয়াল',
-                'Rabiʻ II': 'রবিউস সানি',
-                'Jumada I': 'জমাদিউল আউয়াল',
-                'Jumada II': 'জমাদিউস সানি',
-                'Rajab': 'রজব',
-                'Shaʻban': 'শাবান',
-                'Ramadan': 'রমজান',
-                'Shawwal': 'শাওয়াল',
-                'Dhuʻl-Qiʻdah': 'জিলকদ',
-                'Dhuʻl-Hijjah': 'জিলহজ'
-            };
-            try {
-                const parts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric'
-                }).formatToParts(bdDay);
-                const day = parts.find(p => p.type === 'day')?.value;
-                const monthEn = parts.find(p => p.type === 'month')?.value;
-                const year = parts.find(p => p.type === 'year')?.value;
-                if (day && monthEn && year) {
-                    const monthBn = hijriMonthsBn[monthEn] || monthEn;
-                    return `${bnNum(day)} ${monthBn} ${bnNum(year)} হিজরি`;
-                }
-            } catch (e) {}
-            return '';
-        }
+            const hijriMonthsBn = [
+                'মুহররম', 'সফর', 'রবিউল আউয়াল', 'রবিউস সানি',
+                'জমাদিউল আউয়াল', 'জমাদিউস সানি', 'রজব', 'শাবান',
+                'রমজান', 'শাওয়াল', 'জিলকদ', 'জিলহজ'
+            ];
 
-        function englishDateBn(d = getBangladeshDateObj()) {
-            const months = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-            const days = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
-            return {
-                weekday: days[d.getDay()],
-                full: `${bnNum(d.getDate())} ${months[d.getMonth()]} ${bnNum(d.getFullYear())} খ্রিস্টাব্দ`
-            };
+            for (const cal of ['islamic-umalqura', 'islamic-civil', 'islamic']) {
+                try {
+                    const parts = new Intl.DateTimeFormat(`en-u-ca-${cal}`, {
+                        day: 'numeric',
+                        month: 'numeric',
+                        year: 'numeric'
+                    }).formatToParts(bdDay);
+                    const dayNum = parseInt(parts.find(p => p.type === 'day')?.value || '', 10);
+                    const monthNum = parseInt(parts.find(p => p.type === 'month')?.value || '', 10);
+                    const yearNum = parseInt(parts.find(p => p.type === 'year')?.value || '', 10);
+                    if (dayNum >= 1 && dayNum <= 30 && monthNum >= 1 && monthNum <= 12 && yearNum > 1400) {
+                        return `${bnNum(dayNum)} ${hijriMonthsBn[monthNum - 1]} ${bnNum(yearNum)} হিজরি`;
+                    }
+                } catch (e) {}
+            }
+
+            // ব্যাকআপ গাণিতিক হিজরি হিসাব
+            const jd = Math.floor((Date.UTC(bdDay.getFullYear(), bdDay.getMonth(), bdDay.getDate()) / 864e5) + 2440587.5);
+            let l = jd - 1948440 + 10632;
+            const n = Math.floor((l - 1) / 10631);
+            l = l - 10631 * n + 354;
+            const j = (Math.floor((10985 - l) / 5316)) * (Math.floor((50 * l) / 17719)) + (Math.floor(l / 5670)) * (Math.floor((43 * l) / 15238));
+            l = l - (Math.floor((30 - j) / 15)) * (Math.floor((17719 * j) / 50)) - (Math.floor(j / 16)) * (Math.floor((15238 * j) / 43)) + 29;
+            const hMonth = Math.floor((24 * l) / 709);
+            const hDay = l - Math.floor((709 * hMonth) / 24);
+            const hYear = 30 * n + j - 30;
+            const monthBn = hijriMonthsBn[Math.max(0, Math.min(11, hMonth - 1))];
+            return `${bnNum(hDay)} ${monthBn} ${bnNum(hYear)} হিজরি`;
         }
 
         function todayStoryText() {
             const d = getBangladeshDateObj();
-            const en = englishDateBn(d);
+            const weekdaysBn = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
+            const monthsBn = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+            const wd = weekdaysBn[d.getDay()];
+            const en = `${bnNum(d.getDate())} ${monthsBn[d.getMonth()]} ${bnNum(d.getFullYear())} খ্রিস্টাব্দ`;
             const bn = banglaDate(d);
             const ar = hijriDateBD(d);
-            const timeStr = getStandardTimeBD();
-            return `বার: ${en.weekday} | সময়: ${timeStr}\nখ্রিস্টাব্দ: ${en.full}\nবাংলা: ${bn}${ar ? `\nআরবি: ${ar}` : ''}`;
+            return `বার: ${wd}\nইংরেজি: ${en}\nবাংলা: ${bn}\nআরবি: ${ar}`;
         }
 
         function liveStory(st) {
@@ -332,22 +388,18 @@
             if (st.id === 'st4') {
                 const slot = Math.floor(Date.now() / OTHER_TTL);
                 const pr = PROVERBS[slot % PROVERBS.length];
-                return { ...st, text: `“${pr[0]}”\nভাবার্থ: ${pr[1]}` };
+                return { ...st, text: `“${pr[0]}”\nঅর্থ: ${pr[1]}` };
             }
             return st;
         }
 
-        // প্রতি সেকেন্ডে লাইভ ঘড়ি আপডেট (শুধুমাত্র টেক্সট নোড আপডেট করে, পুরো পেজ রি-রেন্ডার না করে যাতে অতি দ্রুত থাকে)
+        // লাইভ স্ট্যান্ডার্ড ঘড়ি আপডেট (প্রতি সেকেন্ডে, পেজ রি-রেন্ডার না করে)
         setInterval(() => {
-            const clockEl = document.getElementById('live-bst-clock');
+            const clockEl = document.getElementById('liveStandardClock');
             if (clockEl) clockEl.textContent = getStandardTimeBD();
-            const stTextEl = document.getElementById('live-story-text');
-            if (stTextEl && fixedStories[storyIndex % fixedStories.length]?.id === 'st1') {
-                stTextEl.textContent = todayStoryText();
-            }
         }, 1000);
 
-        async function fetchJson(url, ms = 6500) {
+        async function fetchJson(url, ms = 7500) {
             const c = new AbortController();
             const t = setTimeout(() => c.abort(), ms);
             try {
@@ -357,14 +409,17 @@
             } finally { clearTimeout(t); }
         }
 
-        // দ্রুত সংবাদ আপডেট
         async function refreshNewsEveryHour(force = false) {
             if (!auth.currentUser || newsBusy) return false;
             if (!force && (Date.now() - newsUpdatedAt < NEWS_TTL)) return false;
             newsBusy = true;
             try {
                 const f = await fetchJson('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://feeds.bbci.co.uk/bengali/rss.xml'));
-                const lines = (f.items || []).slice(0, 3).map(i => '• ' + clip(i.title, 120));
+                const lines = (f.items || [])
+                    .map(i => clip(i.title, 120))
+                    .filter(t => hasBengaliScript(t))
+                    .slice(0, 3)
+                    .map(t => '• ' + t);
                 if (!lines.length) return false;
                 const newsText = lines.join('\n') + '\n— সূত্র: বিবিসি বাংলা';
                 fixedStories[4] = { id: 'st5', title: 'সর্বশেষ সংবাদ', text: newsText };
@@ -387,7 +442,6 @@
             }
         }
 
-        // পূর্ণ কুরআন আয়াত ও পূর্ণ হাদিস (কোনো টেক্সট না কেটে)
         async function refreshOtherStoriesEvery6Hours(force = false) {
             if (!auth.currentUser || storyBusy) return false;
             if (!force && (Date.now() - otherUpdatedAt < OTHER_TTL)) return false;
@@ -401,14 +455,23 @@
                     (async () => {
                         const n = (slot * 37) % 6236 + 1;
                         const a = (await fetchJson('https://api.alquran.cloud/v1/ayah/' + n + '/bn.bengali')).data;
-                        const surahName = a.surah.englishName || `সূরা ${bnNum(a.surah.number)}`;
+                        if (a && hasBengaliScript(a.text)) {
+                            const sNum = a.surah.number;
+                            const surahBn = SURAH_NAMES_BN[sNum] || `সূরা ${bnNum(sNum)}`;
+                            next[1] = {
+                                id: 'st2',
+                                title: 'আজকের কুরআন আয়াত',
+                                text: `“${a.text.trim()}”\n— সূরা ${surahBn} (${bnNum(sNum)}), আয়াত নং: ${bnNum(a.numberInSurah)}`
+                            };
+                            ok++;
+                        }
+                    })().catch(() => {
                         next[1] = {
                             id: 'st2',
-                            title: 'আজকের পূর্ণ কুরআন আয়াত',
-                            text: `“${a.text.trim()}”\n— ${surahName} (${bnNum(a.surah.number)}), আয়াত নং: ${bnNum(a.numberInSurah)}`
+                            title: 'আজকের কুরআন আয়াত',
+                            text: BENGALI_QURAN_FALLBACK[slot % BENGALI_QURAN_FALLBACK.length]
                         };
-                        ok++;
-                    })().catch(() => {}),
+                    }),
                     (async () => {
                         const editions = [
                             ['ben-bukhari', 4000, 'সহীহ বুখারী'],
@@ -420,10 +483,10 @@
                                 const n = (slot * 53) % max + 1;
                                 const h = await fetchJson(`https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${ed}/${n}.json`);
                                 const t = h.text || (h.hadiths && h.hadiths[0] && h.hadiths[0].text);
-                                if (t && t.trim()) {
+                                if (t && hasBengaliScript(t)) {
                                     next[2] = {
                                         id: 'st3',
-                                        title: 'আজকের পূর্ণ হাদিস',
+                                        title: 'আজকের হাদিস',
                                         text: `“${t.trim()}”\n— ${name}, হাদিস নং: ${bnNum(n)}`
                                     };
                                     ok++;
@@ -431,10 +494,14 @@
                                 }
                             } catch (e) {}
                         }
+                        next[2] = {
+                            id: 'st3',
+                            title: 'আজকের হাদিস',
+                            text: BENGALI_HADITH_FALLBACK[slot % BENGALI_HADITH_FALLBACK.length]
+                        };
                     })()
                 ]);
 
-                if (ok < 1) return false;
                 fixedStories = next;
                 otherUpdatedAt = Date.now();
                 saveLocalStoriesCache();
@@ -446,8 +513,8 @@
                     }, { merge: true }).catch(() => {});
                 }
                 render();
-                if (force) showToast('পূর্ণ কুরআন ও হাদিস আপডেট হয়েছে!');
-                return true;
+                if (force) showToast('কুরআন ও হাদিস আপডেট হয়েছে!');
+                return ok > 0;
             } catch (e) {
                 return false;
             } finally {
@@ -580,7 +647,6 @@
                 applyMe();
                 render();
             }, err));
-
             unsubs.push(db.collection('users').onSnapshot(snap => {
                 state.users = snap.docs.map(d => d.data());
                 synced.users = {};
@@ -591,12 +657,15 @@
                 }
                 render();
             }, err));
-
             startPostsListener();
-
             unsubs.push(db.collection('config').doc('stories').onSnapshot(d => {
                 if (d.exists && Array.isArray(d.data().items)) {
-                    fixedStories = d.data().items;
+                    const cloudItems = d.data().items;
+                    cloudItems.forEach((item, idx) => {
+                        if (item && idx < 5 && hasBengaliScript(item.title) && (idx === 0 || idx === 3 || hasBengaliScript(item.text))) {
+                            fixedStories[idx] = item;
+                        }
+                    });
                     synced.stories = JSON.stringify(fixedStories);
                     const nTs = d.data().newsUpdatedAt || d.data().updatedAt;
                     const oTs = d.data().otherUpdatedAt || d.data().updatedAt;
@@ -608,29 +677,38 @@
                 refreshNewsEveryHour(false);
                 refreshOtherStoriesEvery6Hours(false);
             }, err));
-
-            // এডিটর প্যানেল থেকে সেট করা পপআপ উইন্ডো লিসেনার
+            // এডিটর প্যানেল থেকে সেট করা পপআপ উইন্ডো রিয়েল-টাইম লিসেনার
             unsubs.push(db.collection('config').doc('popup').onSnapshot(d => {
-                if (d.exists) {
-                    state.popupConfig = d.data();
-                } else {
-                    state.popupConfig = null;
-                }
+                state.popupConfig = d.exists ? d.data() : null;
                 render();
             }, err));
         }
 
-        // কোনো ইমেইল ভেরিফিকেশন ছাড়াই সরাসরি লগইন স্টেট হ্যান্ডলার
+        // সরাসরি অথেনটিকেশন (কোনো ইমেইল ভেরিফিকেশন ছাড়াই)
         auth.onAuthStateChanged(async user => {
             stopListeners();
             if (!user) {
                 state.currentUser = null;
                 state.notifications = [];
+                state.popupDismissedId = null;
                 state.authReady = true;
                 if (state.currentView !== 'signup') state.currentView = 'login';
                 render();
                 return;
             }
+            try {
+                const pd = await db.collection('pending').doc(user.uid).get();
+                if (pd.exists) {
+                    const d = pd.data();
+                    const b = db.batch();
+                    b.set(db.collection('phones').doc(d.phone.replace('+', '')), { uid: user.uid, email: user.email });
+                    b.set(db.collection('users').doc(user.uid), d.profile);
+                    b.delete(db.collection('pending').doc(user.uid));
+                    await b.commit();
+                }
+            } catch (e) {}
+            state.signingUp = false;
+            state.popupDismissedId = null;
             startListeners();
         });
 
@@ -639,43 +717,39 @@
             const unreadCount = state.notifications.filter(n => n.recipientPhone === state.currentUser.phone && !n.isRead).length;
 
             return `
-                <header class="bg-white border-b border-neutral-200 text-neutral-900 sticky top-0 z-40">
+                <header class="bg-white border-b border-neutral-200 sticky top-0 z-40">
                     <div class="max-w-3xl mx-auto px-4 py-3 flex justify-between items-center">
                         <div class="cursor-pointer flex items-center gap-2.5" onclick="switchView('feed')">
-                            <span class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-base">উ</span>
-                            <span class="text-xl font-bold tracking-tight text-neutral-900">উঠান</span>
+                            <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base">উ</span>
+                            <span class="text-xl font-bold text-neutral-900 tracking-tight">উঠান</span>
                         </div>
-                        <div class="hidden md:flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-                            <i class="fa-regular fa-clock"></i>
-                            <span id="live-bst-clock">${esc(getStandardTimeBD())}</span>
-                        </div>
-                        <div class="flex items-center space-x-4 text-sm font-medium">
-                            <button onclick="switchView('feed')" class="transition flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg ${state.currentView === 'feed' ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-neutral-600 hover:bg-neutral-100'}">
-                                <i class="fa-solid fa-house text-sm"></i> <span class="hidden sm:inline">ফিড</span>
+                        <div class="flex items-center space-x-3 sm:space-x-5 text-sm font-medium">
+                            <button onclick="switchView('feed')" class="px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition ${state.currentView === 'feed' ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200' : 'text-neutral-600 hover:bg-neutral-100'}">
+                                <i class="fa-solid fa-house text-xs"></i> <span class="hidden sm:inline">ফিড</span>
                             </button>
-                            <button onclick="switchView('notifications')" class="transition relative flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg ${state.currentView === 'notifications' ? 'bg-emerald-50 text-emerald-700 font-bold' : 'text-neutral-600 hover:bg-neutral-100'}">
-                                <i class="fa-solid fa-bell text-sm"></i> <span class="hidden sm:inline">বিজ্ঞপ্তি</span>
-                                ${unreadCount > 0 ? `<span class="absolute -top-1 -right-1 bg-neutral-900 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">${unreadCount}</span>` : ''}
+                            <button onclick="switchView('notifications')" class="px-3 py-1.5 rounded-xl relative flex items-center space-x-1.5 transition ${state.currentView === 'notifications' ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200' : 'text-neutral-600 hover:bg-neutral-100'}">
+                                <i class="fa-solid fa-bell text-xs"></i> <span class="hidden sm:inline">বিজ্ঞপ্তি</span>
+                                ${unreadCount > 0 ? `<span class="bg-neutral-900 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">${bnNum(unreadCount)}</span>` : ''}
                             </button>
                             <div class="relative">
                                 <button onclick="toggleSubmenu(event)" class="flex items-center space-x-1.5 focus:outline-none p-1 rounded-full hover:bg-neutral-100">
-                                    <img src="${safeUrl(state.currentUser.profilePhoto)}" alt="Profile" class="w-8 h-8 rounded-full border border-emerald-400 object-cover bg-white">
-                                    <i class="fa-solid fa-chevron-down text-[10px] text-neutral-500"></i>
+                                    <img src="${safeUrl(state.currentUser.profilePhoto)}" alt="Profile" class="w-8 h-8 rounded-full border border-emerald-300 object-cover bg-white">
+                                    <i class="fa-solid fa-angle-down text-xs text-neutral-600 pr-1"></i>
                                 </button>
-                                <div id="navSubmenu" class="absolute right-0 mt-2 w-48 bg-white text-neutral-800 rounded-xl shadow-lg py-1.5 hidden border border-neutral-200 z-50">
-                                    <button onclick="viewMyProfile()" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-700 flex items-center space-x-2 text-xs font-medium">
-                                        <i class="fa-solid fa-user text-emerald-600 w-4"></i> <span>আমার প্রোফাইল</span>
+                                <div id="navSubmenu" class="absolute right-0 mt-2 w-48 bg-white text-neutral-800 rounded-2xl shadow-xl py-1.5 hidden border border-neutral-200 z-50">
+                                    <button onclick="viewMyProfile()" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-800 flex items-center space-x-2 text-xs font-semibold">
+                                        <i class="fa-solid fa-user text-emerald-600 w-4"></i> <span>প্রোফাইল</span>
                                     </button>
-                                    <button onclick="switchView('all_members')" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-700 flex items-center space-x-2 text-xs font-medium">
+                                    <button onclick="switchView('all_members')" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-800 flex items-center space-x-2 text-xs font-semibold">
                                         <i class="fa-solid fa-users text-emerald-600 w-4"></i> <span>সকল সদস্য</span>
                                     </button>
                                     ${state.currentUser.isEditor ? `
-                                        <button onclick="switchView('editor_panel')" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-700 flex items-center space-x-2 text-xs font-medium border-t border-neutral-100">
-                                            <i class="fa-solid fa-sliders text-emerald-700 w-4"></i> <span>এডিটর প্যানেল</span>
+                                        <button onclick="switchView('editor_panel')" class="w-full text-left px-4 py-2 hover:bg-emerald-50 hover:text-emerald-800 flex items-center space-x-2 text-xs font-semibold border-t border-neutral-100">
+                                            <i class="fa-solid fa-sliders text-neutral-900 w-4"></i> <span>অ্যাডমিন প্যানেল</span>
                                         </button>
                                     ` : ''}
                                     <div class="border-t border-neutral-100 my-1"></div>
-                                    <button onclick="logout()" class="w-full text-left px-4 py-2 hover:bg-neutral-100 text-neutral-700 flex items-center space-x-2 text-xs font-medium">
+                                    <button onclick="logout()" class="w-full text-left px-4 py-2 hover:bg-neutral-100 text-neutral-700 flex items-center space-x-2 text-xs font-semibold">
                                         <i class="fa-solid fa-right-from-bracket text-neutral-500 w-4"></i> <span>লগ আউট</span>
                                     </button>
                                 </div>
@@ -699,12 +773,12 @@
 
         function renderLogin() {
             return `
-                <div class="min-h-screen flex items-center justify-center bg-neutral-50 px-4 py-10">
-                    <div class="max-w-md w-full bg-white rounded-2xl border border-neutral-200 p-8 fade-in">
+                <div class="min-h-screen flex items-center justify-center bg-neutral-50 px-4 py-12">
+                    <div class="max-w-md w-full bg-white rounded-2xl border border-neutral-200 p-8 shadow-sm">
                         <div class="text-center mb-7">
-                            <div class="w-12 h-12 rounded-2xl bg-emerald-600 text-white font-bold text-2xl flex items-center justify-center mx-auto mb-3">উ</div>
-                            <h1 class="text-2xl font-bold text-neutral-900">উঠান</h1>
-                            <p class="text-neutral-500 text-xs mt-1">সহজ ও পরিচ্ছন্ন বাংলা সোশ্যাল প্ল্যাটফর্ম</p>
+                            <div class="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-bold text-2xl mx-auto mb-3">উ</div>
+                            <h1 class="text-3xl font-bold text-neutral-900 mb-1">উঠান</h1>
+                            <p class="text-neutral-500 text-xs">সহজ ও পরিচ্ছন্ন বাংলা সামাজিক মাধ্যম</p>
                         </div>
                         <form onsubmit="handleLogin(event)" class="space-y-4">
                             <div>
@@ -715,11 +789,11 @@
                                 <label class="block text-xs font-semibold text-neutral-700 mb-1">পাসওয়ার্ড</label>
                                 <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                             </div>
-                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl transition">লগ ইন করুন</button>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl transition text-sm">লগ ইন করুন</button>
                         </form>
                         <div class="flex justify-between items-center mt-5 text-xs">
-                            <button onclick="recoverPasswordPrompt()" class="text-neutral-600 hover:text-emerald-700 hover:underline font-medium">পাসওয়ার্ড ভুলে গেছেন?</button>
-                            <button onclick="switchView('signup')" class="text-emerald-700 font-bold hover:underline">নতুন একাউন্ট তৈরি করুন</button>
+                            <button onclick="recoverPasswordPrompt()" class="text-neutral-600 hover:text-neutral-900 hover:underline font-medium">পাসওয়ার্ড ভুলে গেছেন?</button>
+                            <button onclick="switchView('signup')" class="text-emerald-700 font-bold hover:underline">নতুন একাউন্ট খুলুন</button>
                         </div>
                     </div>
                 </div>
@@ -729,27 +803,27 @@
         function renderSignup() {
             return `
                 <div class="min-h-screen flex items-center justify-center bg-neutral-50 px-4 py-10">
-                    <div class="max-w-lg w-full bg-white rounded-2xl border border-neutral-200 p-7 fade-in">
+                    <div class="max-w-lg w-full bg-white rounded-2xl border border-neutral-200 p-7 shadow-sm">
                         <div class="text-center mb-6">
-                            <h1 class="text-2xl font-bold text-neutral-900">নতুন একাউন্ট তৈরি করুন</h1>
-                            <p class="text-neutral-500 text-xs mt-1">কোনো ইমেইল ভেরিফিকেশন ছাড়াই সরাসরি যুক্ত হোন</p>
+                            <h1 class="text-2xl font-bold text-neutral-900 mb-1">নতুন একাউন্ট তৈরি করুন</h1>
+                            <p class="text-neutral-500 text-xs">কোনো ইমেইল ভেরিফিকেশন ছাড়াই সরাসরি যুক্ত হোন</p>
                         </div>
                         <form onsubmit="handleSignup(event)" class="space-y-3.5">
                             <div>
                                 <label class="block text-xs font-semibold text-neutral-700 mb-1">পূর্ণ নাম</label>
-                                <input type="text" id="signupName" required placeholder="আপনার পূর্ণ নাম" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                <input type="text" id="signupName" required placeholder="আপনার পূর্ণ নাম" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">ইমেইল</label>
-                                    <input type="email" id="signupEmail" required placeholder="example@gmail.com" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                    <input type="email" id="signupEmail" required placeholder="example@gmail.com" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)</label>
-                                    <input type="password" id="signupPassword" required minlength="6" placeholder="••••••••" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                    <input type="password" id="signupPassword" required minlength="6" placeholder="••••••" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                                 </div>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">মোবাইল (+880 এর পর ১০ ডিজিট)</label>
                                     <div class="flex">
@@ -759,10 +833,10 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">বয়স</label>
-                                    <input type="number" id="signupAge" min="10" max="100" required placeholder="২৫" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                    <input type="number" id="signupAge" min="10" max="100" required placeholder="২৫" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                                 </div>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">পেশা</label>
                                     <select id="signupProfession" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm bg-white">
@@ -771,14 +845,14 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-neutral-700 mb-1">এসএসসি ব্যাচ</label>
-                                    <input type="text" id="signupBatch" required pattern="[0-9]{4}" maxlength="4" placeholder="2015" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                    <input type="text" id="signupBatch" required pattern="[0-9]{4}" maxlength="4" placeholder="2015" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-neutral-700 mb-1">ঠিকানা</label>
-                                <input type="text" id="signupLocation" required placeholder="জেলা বা এলাকা" class="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
+                                <input type="text" id="signupLocation" required placeholder="জেলা বা এলাকা" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm">
                             </div>
-                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl transition mt-2">সাইন আপ করুন</button>
+                            <button type="submit" id="signupSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl transition text-sm mt-1">সাইন আপ করুন</button>
                         </form>
                         <div class="mt-4 text-center">
                             <p class="text-xs text-neutral-600">ইতিমধ্যে একাউন্ট আছে? <button onclick="switchView('login')" class="text-emerald-700 font-bold hover:underline">লগ ইন করুন</button></p>
@@ -790,52 +864,43 @@
 
         function renderFeed() {
             const currentStory = liveStory(fixedStories[storyIndex % fixedStories.length]);
-            const storyIcons = {
-                st1: 'fa-calendar-days',
-                st2: 'fa-book-quran',
-                st3: 'fa-book-open',
-                st4: 'fa-feather-pointed',
-                st5: 'fa-newspaper'
-            };
+            const storyIcons = { st1: 'fa-calendar-days', st2: 'fa-book-quran', st3: 'fa-book-open', st4: 'fa-feather-pointed', st5: 'fa-newspaper' };
             const visiblePosts = state.posts;
 
             return `
                 ${renderNavbar()}
                 <main class="max-w-2xl mx-auto px-4 py-5 flex-grow w-full space-y-5">
-                    <!-- হালকা সবুজ ও সাদা-কালো লাইভ ইনফো কার্ড -->
-                    <div class="soft-green-card p-5 fade-in">
+                    <!-- হালকা সবুজ ও সাদা-কালো লাইভ ইনফো কার্ড (৫টি বাংলা কার্ড) -->
+                    <div class="soft-green-box p-4 sm:p-5">
                         <div class="flex items-start gap-3.5">
                             <div class="w-10 h-10 rounded-xl bg-white border border-emerald-200 text-emerald-700 flex items-center justify-center flex-shrink-0">
                                 <i class="fa-solid ${storyIcons[currentStory.id] || 'fa-star'} text-base"></i>
                             </div>
                             <div class="flex-grow min-w-0">
-                                <div class="flex items-center justify-between gap-2">
-                                    <span class="text-xs font-bold text-emerald-800">
+                                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                                    <span class="text-xs font-bold text-emerald-900">
                                         ${esc(currentStory.title)}${currentStory.id === 'st5' && newsUpdatedAt ? ' · ' + timeAgo(newsUpdatedAt) : ''}
                                     </span>
-                                    <span class="text-[11px] font-semibold text-neutral-500">${bnNum((storyIndex % fixedStories.length) + 1)}/${bnNum(fixedStories.length)}</span>
+                                    ${currentStory.id === 'st1' ? `
+                                        <span id="liveStandardClock" class="text-[11px] font-bold bg-white text-neutral-900 border border-emerald-200 px-2.5 py-0.5 rounded-full tabular-nums">
+                                            ${esc(getStandardTimeBD())}
+                                        </span>
+                                    ` : ''}
                                 </div>
-                                <p id="live-story-text" class="text-sm text-neutral-900 font-medium leading-relaxed mt-1.5 whitespace-pre-line break-words">${esc(currentStory.text)}</p>
+                                <p class="text-sm font-medium text-neutral-800 leading-relaxed mt-1.5 whitespace-pre-line break-words">${esc(currentStory.text)}</p>
                             </div>
                         </div>
-                        <div class="flex items-center justify-between mt-4 pt-3 border-t border-emerald-200/70">
+                        <div class="flex items-center justify-between mt-3.5 pt-2.5 border-t border-emerald-200/70">
                             <div class="flex gap-1.5">
-                                ${fixedStories.map((st, i) => `
-                                    <button onclick="goStory(${i})" title="${esc(st.title)}" class="h-1.5 rounded-full transition-all ${i === storyIndex % fixedStories.length ? 'w-6 bg-emerald-600' : 'w-2 bg-emerald-200 hover:bg-emerald-300'}"></button>
-                                `).join('')}
+                                ${fixedStories.map((_, i) => `<button onclick="goStory(${i})" aria-label="কার্ড ${bnNum(i + 1)}" class="h-1.5 rounded-full transition-all ${i === storyIndex % fixedStories.length ? 'w-6 bg-emerald-700' : 'w-2 bg-emerald-300'}"></button>`).join('')}
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button onclick="prevStory()" class="bg-white hover:bg-emerald-100/70 text-neutral-800 border border-emerald-200 px-3 py-1 rounded-lg text-xs font-semibold transition">
-                                    <i class="fa-solid fa-arrow-left"></i>
-                                </button>
-                                <button onclick="nextStory()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
-                                    পরবর্তী <i class="fa-solid fa-arrow-right"></i>
-                                </button>
-                            </div>
+                            <button onclick="nextStory()" class="bg-white hover:bg-emerald-100 text-neutral-900 border border-emerald-200 px-3.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 transition">
+                                পরবর্তী <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- পোস্ট তৈরির কার্ড -->
+                    <!-- পোস্ট তৈরির বক্স -->
                     <div class="clean-card p-4">
                         <div class="flex items-center space-x-3 mb-3">
                             <img src="${safeUrl(state.currentUser.profilePhoto)}" class="w-9 h-9 rounded-full border border-neutral-200 object-cover">
@@ -844,20 +909,20 @@
                                 <span class="text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">${esc(state.currentUser.profession)}</span>
                             </div>
                         </div>
-                        <form onsubmit="handleCreatePost(event)" class="space-y-3">
-                            <textarea id="postContent" rows="3" maxlength="5000" placeholder="আজ আপনার মনে কী চলছে?" class="w-full p-3 rounded-xl border border-neutral-200 focus:border-emerald-600 focus:outline-none text-sm resize-none bg-neutral-50/50"></textarea>
+                        <form onsubmit="handleCreatePost(event)" class="space-y-2.5">
+                            <textarea id="postContent" rows="3" maxlength="5000" placeholder="আজ আপনার মনে কী চলছে?" class="w-full p-3 rounded-xl border border-neutral-200 focus:border-emerald-600 focus:outline-none text-sm resize-none"></textarea>
                             <div class="flex items-center justify-between gap-2">
                                 <input type="text" id="postImage" placeholder="ছবির লিংক (ঐচ্ছিক)" class="w-2/3 px-3 py-2 rounded-xl border border-neutral-200 text-xs focus:border-emerald-600 focus:outline-none">
-                                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold transition">পোস্ট করুন</button>
+                                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition">পোস্ট করুন</button>
                             </div>
                         </form>
                     </div>
 
                     <!-- পোস্ট ফিড -->
                     <div class="space-y-4">
-                        ${visiblePosts.length === 0 ? '<p class="text-center text-neutral-500 py-10 text-sm clean-card">এখনো কোনো পোস্ট নেই।</p>' : ''}
+                        ${visiblePosts.length === 0 ? '<p class="text-center text-neutral-500 py-10 text-sm">এখনো কোনো পোস্ট নেই।</p>' : ''}
                         ${visiblePosts.map(post => renderPostCard(post)).join('')}
-                        ${state.postsMore ? '<button onclick="loadMorePosts()" class="w-full py-2.5 rounded-xl bg-white border border-neutral-200 text-emerald-700 text-xs font-bold hover:bg-emerald-50 transition">আরও পোস্ট দেখুন</button>' : ''}
+                        ${state.postsMore ? '<button onclick="loadMorePosts()" class="w-full py-2.5 rounded-xl bg-white border border-neutral-200 text-neutral-800 text-xs font-bold hover:bg-emerald-50 transition">আরও পোস্ট দেখুন</button>' : ''}
                     </div>
                 </main>
             `;
@@ -868,16 +933,12 @@
             render();
         }
 
-        function prevStory() {
-            storyIndex = (storyIndex - 1 + fixedStories.length) % fixedStories.length;
-            render();
-        }
-
         function nextStory() {
             storyIndex = (storyIndex + 1) % fixedStories.length;
             render();
         }
 
+        // পোস্ট কার্ড (কোনো অ্যানিমেশন বা লাফানো ছাড়া স্থির ডিজাইন)
         function renderPostCard(post, isModal = false) {
             const isAuthor = post.authorPhone === state.currentUser?.phone;
             const isAdmin = state.currentUser?.isEditor;
@@ -895,7 +956,7 @@
             const commentsToShow = isModal ? post.comments : post.comments.slice(-2);
 
             return `
-                <div class="clean-card p-5 relative fade-in">
+                <div data-post-card="${esc(post.id)}" class="clean-card p-5 relative">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${esc(post.authorPhone)}')">
                             <img src="${safeUrl(post.authorAvatar || getAutoAvatar())}" class="w-10 h-10 rounded-full border border-emerald-200 object-cover">
@@ -932,7 +993,7 @@
                         </div>
                     ` : ''}
 
-                    <div class="flex items-center justify-between text-[11px] text-neutral-500 border-b border-neutral-100 pb-2 mb-2.5">
+                    <div data-react-summary="${esc(post.id)}" class="flex items-center justify-between text-[11px] text-neutral-500 border-b border-neutral-100 pb-2 mb-2.5 min-h-[26px] tabular-nums">
                         <div>
                             ${totalReactions > 0 ? `<span class="font-semibold text-emerald-700">🤲 ${bnNum(totalReactions)}টি প্রতিক্রিয়া</span>` : '<span>প্রতিক্রিয়া নেই</span>'}
                         </div>
@@ -943,14 +1004,14 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-3 gap-2 border-b border-neutral-100 pb-3 mb-3">
-                        <button onclick="toggleReaction('${esc(post.id)}', 'Masaallah')" class="py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition ${myReaction === 'Masaallah' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' : 'bg-neutral-50 text-neutral-700 border border-neutral-200 hover:bg-neutral-100'}">
+                    <div data-react-bar="${esc(post.id)}" class="grid grid-cols-3 gap-2 border-b border-neutral-100 pb-3 mb-3">
+                        <button type="button" onclick="toggleReaction('${esc(post.id)}', 'Masaallah')" class="h-9 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border select-none ${myReaction === 'Masaallah' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100'}">
                             <span>🌿</span> <span>মাশাআল্লাহ</span>
                         </button>
-                        <button onclick="toggleReaction('${esc(post.id)}', 'Dua Roilo')" class="py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition ${myReaction === 'Dua Roilo' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' : 'bg-neutral-50 text-neutral-700 border border-neutral-200 hover:bg-neutral-100'}">
+                        <button type="button" onclick="toggleReaction('${esc(post.id)}', 'Dua Roilo')" class="h-9 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border select-none ${myReaction === 'Dua Roilo' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100'}">
                             <span>🤲</span> <span>দোয়া রইলো</span>
                         </button>
-                        <button onclick="toggleReaction('${esc(post.id)}', 'Innalillah')" class="py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition ${myReaction === 'Innalillah' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' : 'bg-neutral-50 text-neutral-700 border border-neutral-200 hover:bg-neutral-100'}">
+                        <button type="button" onclick="toggleReaction('${esc(post.id)}', 'Innalillah')" class="h-9 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border select-none ${myReaction === 'Innalillah' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100'}">
                             <span>🕊️</span> <span>ইন্নালিল্লাহ</span>
                         </button>
                     </div>
@@ -961,7 +1022,7 @@
                             <button type="submit" class="bg-neutral-900 hover:bg-neutral-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold transition">কমেন্ট</button>
                         </form>
 
-                        <div class="space-y-1.5 mt-2">
+                        <div data-comment-list="${esc(post.id)}" class="space-y-1.5 mt-2">
                             ${commentsToShow.map(c => `
                                 <div class="bg-neutral-50 px-3 py-2 rounded-xl border border-neutral-100 text-xs flex justify-between items-center">
                                     <div>
@@ -985,6 +1046,40 @@
             `;
         }
 
+        // রিঅ্যাকশন দিলে পুরো পেজ রি-রেন্ডার না করে শুধুমাত্র নির্দিষ্ট পোস্টের বার আপডেট (যাতে একটুও না কাঁপে)
+        function updatePostReactionsDOM(postId) {
+            const post = state.posts.find(p => p.id === postId);
+            if (!post) return;
+            const mCount = post.reactions['Masaallah']?.length || 0;
+            const dCount = post.reactions['Dua Roilo']?.length || 0;
+            const iCount = post.reactions['Innalillah']?.length || 0;
+            const totalReactions = mCount + dCount + iCount;
+            const myReaction = Object.keys(post.reactions).find(key => post.reactions[key].includes(state.currentUser?.phone));
+
+            document.querySelectorAll(`[data-react-summary="${postId}"]`).forEach(el => {
+                el.innerHTML = `
+                    <div>
+                        ${totalReactions > 0 ? `<span class="font-semibold text-emerald-700">🤲 ${bnNum(totalReactions)}টি প্রতিক্রিয়া</span>` : '<span>প্রতিক্রিয়া নেই</span>'}
+                    </div>
+                    <div class="space-x-2">
+                        ${mCount > 0 ? `<span>মাশাআল্লাহ (${bnNum(mCount)})</span>` : ''}
+                        ${dCount > 0 ? `<span>দোয়া রইলো (${bnNum(dCount)})</span>` : ''}
+                        ${iCount > 0 ? `<span>ইন্নালিল্লাহ (${bnNum(iCount)})</span>` : ''}
+                    </div>
+                `;
+            });
+
+            const activeCls = 'h-9 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border select-none bg-emerald-50 text-emerald-800 border-emerald-300';
+            const normalCls = 'h-9 px-2 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border select-none bg-neutral-50 text-neutral-700 border-neutral-200 hover:bg-neutral-100';
+
+            document.querySelectorAll(`[data-react-bar="${postId}"]`).forEach(bar => {
+                const btns = bar.querySelectorAll('button');
+                if (btns[0]) btns[0].className = myReaction === 'Masaallah' ? activeCls : normalCls;
+                if (btns[1]) btns[1].className = myReaction === 'Dua Roilo' ? activeCls : normalCls;
+                if (btns[2]) btns[2].className = myReaction === 'Innalillah' ? activeCls : normalCls;
+            });
+        }
+
         function renderNotifications() {
             const userNotifs = state.notifications.filter(n => n.recipientPhone === state.currentUser.phone);
             return `
@@ -993,26 +1088,26 @@
                     <div class="flex justify-between items-center mb-5">
                         <h2 class="text-xl font-bold text-neutral-900">বিজ্ঞপ্তি</h2>
                         ${userNotifs.length > 0 ? `
-                            <button onclick="clearAllNotifications()" class="text-xs bg-neutral-200 text-neutral-800 px-3 py-1.5 rounded-xl font-semibold hover:bg-neutral-300 transition">সব মুছে ফেলুন</button>
+                            <button onclick="clearAllNotifications()" class="text-xs bg-neutral-900 text-white px-3 py-1.5 rounded-xl font-semibold hover:bg-neutral-800 transition">সব মুছে ফেলুন</button>
                         ` : ''}
                     </div>
 
                     <div class="space-y-2.5">
                         ${userNotifs.length === 0 ? '<div class="clean-card p-8 text-center text-neutral-500 text-sm">কোনো বিজ্ঞপ্তি নেই।</div>' : ''}
                         ${userNotifs.map(n => `
-                            <div class="clean-card p-3.5 ${n.isRead ? 'opacity-80' : 'border-emerald-300 bg-emerald-50/40'} flex justify-between items-center">
+                            <div class="p-4 rounded-2xl border ${n.isRead ? 'bg-white border-neutral-200 opacity-80' : 'bg-emerald-50/50 border-emerald-300'} flex justify-between items-center">
                                 <div class="flex items-center space-x-3 cursor-pointer flex-grow" onclick="${n.postId ? `markAsReadAndOpen('${esc(n.id)}', '${esc(n.postId)}')` : `markAsRead('${esc(n.id)}')`}">
-                                    <div class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold flex-shrink-0">
+                                    <div class="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
                                         <i class="fa-solid fa-bell text-xs"></i>
                                     </div>
                                     <div>
-                                        <p class="text-xs text-neutral-800">${esc(n.text)}</p>
+                                        <p class="text-xs font-medium text-neutral-900">${esc(n.text)}</p>
                                         <span class="text-[10px] text-neutral-400">${timeAgo(n.createdAt, n.date)}</span>
                                     </div>
                                 </div>
                                 <div class="flex items-center space-x-2 flex-shrink-0 ml-2">
                                     ${!n.isRead ? `<button onclick="markAsRead('${esc(n.id)}')" class="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-semibold hover:bg-emerald-700 transition">পড়া হয়েছে</button>` : '<span class="text-[10px] text-neutral-400">পঠিত</span>'}
-                                    <button onclick="deleteNotification('${esc(n.id)}')" class="text-neutral-400 hover:text-rose-600 p-1.5" title="মুছে ফেলুন"><i class="fa-solid fa-xmark"></i></button>
+                                    <button onclick="deleteNotification('${esc(n.id)}')" class="text-neutral-400 hover:text-neutral-900 p-1.5" title="মুছে ফেলুন"><i class="fa-solid fa-xmark"></i></button>
                                 </div>
                             </div>
                         `).join('')}
@@ -1031,30 +1126,30 @@
                 ${renderNavbar()}
                 <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-5">
                     <div class="clean-card p-6 text-center relative">
-                        <img src="${safeUrl(user.profilePhoto)}" class="w-20 h-20 rounded-full mx-auto border-2 border-emerald-500 object-cover mb-3 bg-neutral-100">
+                        <img src="${safeUrl(user.profilePhoto)}" class="w-22 h-22 w-24 h-24 rounded-full mx-auto border-2 border-emerald-600 object-cover mb-3 bg-neutral-100">
                         <h2 class="text-xl font-bold text-neutral-900">${esc(user.name)}</h2>
-                        <p class="text-xs text-neutral-500 mt-0.5">মোবাইল: ${esc(user.phone)}</p>
+                        <p class="text-xs text-neutral-500 mt-1">মোবাইল: ${esc(user.phone)}</p>
                         ${isOwnProfile && currentEmail ? `
                             <p class="text-xs text-neutral-700 mt-1 font-medium">
-                                ইমেইল: <span class="text-emerald-700">${esc(currentEmail)}</span>
+                                ইমেইল: <span class="text-emerald-800 font-semibold">${esc(currentEmail)}</span>
                             </p>
                         ` : ''}
                         <span class="inline-block bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs px-3 py-0.5 rounded-full font-semibold mt-2">${esc(user.profession)}</span>
 
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-5 border-t border-neutral-100 text-center text-xs">
-                            <div>
+                            <div class="bg-neutral-50 p-2.5 rounded-xl">
                                 <span class="block text-[10px] text-neutral-400 font-semibold">বয়স</span>
                                 <span class="font-bold text-neutral-900">${esc(user.age)} বছর</span>
                             </div>
-                            <div>
+                            <div class="bg-neutral-50 p-2.5 rounded-xl">
                                 <span class="block text-[10px] text-neutral-400 font-semibold">ঠিকানা</span>
                                 <span class="font-bold text-neutral-900">${esc(user.location)}</span>
                             </div>
-                            <div>
+                            <div class="bg-neutral-50 p-2.5 rounded-xl">
                                 <span class="block text-[10px] text-neutral-400 font-semibold">এসএসসি ব্যাচ</span>
                                 <span class="font-bold text-neutral-900">${esc(user.sscBatch)}</span>
                             </div>
-                            <div>
+                            <div class="bg-neutral-50 p-2.5 rounded-xl">
                                 <span class="block text-[10px] text-neutral-400 font-semibold">পোস্ট</span>
                                 <span class="font-bold text-neutral-900">${bnNum(userPosts.length)}টি</span>
                             </div>
@@ -1062,25 +1157,25 @@
 
                         ${isOwnProfile ? `
                             <div class="mt-5 pt-4 border-t border-neutral-100 flex flex-wrap justify-center gap-2">
-                                <button onclick="openEditProfileModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition">
+                                <button onclick="openEditProfileModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition">
                                     <i class="fa-solid fa-pen-to-square mr-1"></i> প্রোফাইল এডিট
                                 </button>
-                                <button onclick="openChangeEmailModal()" class="bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-semibold transition">
+                                <button onclick="promptChangeEmail()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-900 px-3.5 py-2 rounded-xl text-xs font-bold transition border border-emerald-200">
                                     <i class="fa-solid fa-envelope mr-1"></i> ইমেইল পরিবর্তন
                                 </button>
-                                <button onclick="openChangePhotoModal()" class="bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 px-3 py-1.5 rounded-xl text-xs font-semibold transition">
+                                <button onclick="promptChangePhoto()" class="bg-neutral-100 hover:bg-neutral-200 text-neutral-800 px-3.5 py-2 rounded-xl text-xs font-bold transition">
                                     <i class="fa-solid fa-image mr-1"></i> ছবি পরিবর্তন
                                 </button>
-                                <button onclick="openChangePasswordModal()" class="bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition">
+                                <button onclick="promptChangePassword()" class="bg-neutral-900 hover:bg-neutral-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition">
                                     <i class="fa-solid fa-key mr-1"></i> পাসওয়ার্ড পরিবর্তন
                                 </button>
                             </div>
                         ` : ''}
 
                         ${state.currentUser.isEditor && !isOwnProfile ? `
-                            <div class="mt-4 pt-4 border-t border-neutral-100 bg-neutral-50 p-3 rounded-xl text-xs text-neutral-800 flex justify-between items-center">
-                                <span><strong>এডিটর নিয়ন্ত্রণ</strong></span>
-                                <button onclick="adminDeleteUser('${esc(user.phone)}')" class="bg-rose-600 text-white px-3 py-1 rounded-lg font-bold hover:bg-rose-700">ইউজার ডিলিট</button>
+                            <div class="mt-4 pt-4 border-t border-neutral-100 bg-neutral-100 p-3 rounded-xl text-xs text-neutral-800 flex justify-between items-center">
+                                <span><strong>অ্যাডমিন নিয়ন্ত্রণ</strong></span>
+                                <button onclick="adminDeleteUser('${esc(user.phone)}')" class="bg-neutral-900 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-rose-600 transition">ইউজার ডিলিট</button>
                             </div>
                         ` : ''}
                     </div>
@@ -1108,15 +1203,15 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         ${visibleUsers.map(u => `
                             <div class="clean-card p-3.5 flex items-center justify-between">
-                                <div class="flex items-center space-x-3 cursor-pointer min-w-0" onclick="viewUserProfile('${esc(u.phone)}')">
-                                    <img src="${safeUrl(u.profilePhoto)}" class="w-11 h-11 rounded-full border border-neutral-200 object-cover flex-shrink-0">
-                                    <div class="min-w-0">
-                                        <h4 class="font-bold text-sm text-neutral-900 truncate">${esc(u.name)}</h4>
-                                        <span class="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">${esc(u.profession)}</span>
-                                        <p class="text-[11px] text-neutral-400 mt-0.5 truncate">ব্যাচ: ${esc(u.sscBatch)} | ${esc(u.location)}</p>
+                                <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${esc(u.phone)}')">
+                                    <img src="${safeUrl(u.profilePhoto)}" class="w-11 h-11 rounded-full border border-neutral-200 object-cover">
+                                    <div>
+                                        <h4 class="font-bold text-sm text-neutral-900">${esc(u.name)}</h4>
+                                        <span class="text-[11px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded font-medium">${esc(u.profession)}</span>
+                                        <p class="text-[11px] text-neutral-400 mt-0.5">ব্যাচ: ${esc(u.sscBatch)} | ${esc(u.location)}</p>
                                     </div>
                                 </div>
-                                <button onclick="viewUserProfile('${esc(u.phone)}')" class="bg-emerald-50 text-emerald-800 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition border border-emerald-200 flex-shrink-0">প্রোফাইল</button>
+                                <button onclick="viewUserProfile('${esc(u.phone)}')" class="bg-neutral-100 text-neutral-900 hover:bg-emerald-600 hover:text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition">প্রোফাইল</button>
                             </div>
                         `).join('')}
                     </div>
@@ -1131,32 +1226,31 @@
             const shownUsers = state.users.filter(u =>
                 !q || [u.name, u.phone, u.sscBatch, u.location].join(' ').toLowerCase().includes(q)
             );
-            const pop = state.popupConfig || { active: false, title: '', text: '', image: '' };
+            const pop = state.popupConfig || { image: '', text: '', duration: 8, active: false };
 
             return `
                 ${renderNavbar()}
                 <main class="max-w-3xl mx-auto px-4 py-6 flex-grow w-full space-y-5">
                     <h2 class="text-xl font-bold text-neutral-900 flex items-center gap-2">
-                        <i class="fa-solid fa-sliders text-emerald-600"></i> এডিটর ও অ্যাডমিন প্যানেল
+                        <i class="fa-solid fa-sliders text-emerald-700"></i> এডিটর ও অ্যাডমিন প্যানেল
                     </h2>
 
-                    <!-- সংক্ষিপ্ত পরিসংখ্যান -->
                     <div class="grid grid-cols-3 gap-3">
-                        <div class="soft-green-card p-4 text-center">
-                            <div class="text-2xl font-bold text-emerald-800">${bnNum(state.users.length)}</div>
-                            <div class="text-xs text-neutral-600">মোট সদস্য</div>
-                        </div>
                         <div class="clean-card p-4 text-center">
-                            <div class="text-2xl font-bold text-neutral-900">${bnNum(state.posts.length)}</div>
-                            <div class="text-xs text-neutral-600">পোস্ট</div>
+                            <div class="text-2xl font-bold text-neutral-900">${bnNum(state.users.length)}</div>
+                            <div class="text-xs text-neutral-500">মোট সদস্য</div>
+                        </div>
+                        <div class="soft-green-box p-4 text-center">
+                            <div class="text-2xl font-bold text-emerald-800">${bnNum(state.posts.length)}</div>
+                            <div class="text-xs text-emerald-700">মোট পোস্ট</div>
                         </div>
                         <div class="clean-card p-4 text-center">
                             <div class="text-2xl font-bold text-neutral-900">${bnNum(state.posts.reduce((a, p) => a + reactCount(p), 0))}</div>
-                            <div class="text-xs text-neutral-600">প্রতিক্রিয়া</div>
+                            <div class="text-xs text-neutral-500">মোট প্রতিক্রিয়া</div>
                         </div>
                     </div>
 
-                    <!-- পপআপ উইন্ডো সেটিংস (লগইন করার পর ফার্স্ট পেজে ছবিসহ শো করবে) -->
+                    <!-- ফার্স্ট পেজ পপআপ উইন্ডো কন্ট্রোল (ছবিসহ, কোনো বাড়তি লেখা ছাড়া, নির্দিষ্ট সেকেন্ড পর অটো-ভ্যানিশ) -->
                     <div class="clean-card p-5 space-y-3 border-emerald-200">
                         <div class="flex items-center justify-between">
                             <h3 class="font-bold text-neutral-900 text-sm flex items-center gap-2">
@@ -1166,21 +1260,21 @@
                                 ${pop.active ? 'চালু আছে' : 'বন্ধ আছে'}
                             </span>
                         </div>
-                        <p class="text-xs text-neutral-500">এখান থেকে পপআপ চালু করলে সব ইউজার লগইন করার পর ফার্স্ট পেজে ছবিসহ এই পপআপটি দেখতে পাবে।</p>
+                        <p class="text-xs text-neutral-500">পপআপে কোনো বাড়তি লেখা বা ঘোষণা থাকবে না—শুধু আপনার দেওয়া ছবি ও বার্তা দেখাবে এবং নির্দিষ্ট সেকেন্ড পর নিজ থেকেই ভ্যানিশ হয়ে যাবে।</p>
                         <form onsubmit="handleSavePopupConfig(event)" class="space-y-3">
                             <div>
-                                <label class="block text-xs font-semibold text-neutral-700 mb-1">পপআপ শিরোনাম</label>
-                                <input type="text" id="popupTitle" value="${esc(pop.title || '')}" placeholder="যেমন: জরুরি বিজ্ঞপ্তি বা শুভেচ্ছা বার্তা" class="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold text-neutral-700 mb-1">ছবির লিংক (Image URL)</label>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">ছবির লিংক (Image URL - ঐচ্ছিক)</label>
                                 <input type="url" id="popupImage" value="${esc(pop.image || '')}" placeholder="https://example.com/banner.jpg" class="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-neutral-700 mb-1">পপআপ বিবরণ / বার্তা</label>
-                                <textarea id="popupText" rows="3" placeholder="পপআপের বিস্তারিত বার্তা লিখুন..." class="w-full p-3 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">${esc(pop.text || '')}</textarea>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">আপনার লেখা (পপআপে যা দেখাবে)</label>
+                                <textarea id="popupText" rows="3" placeholder="পপআপে দেখানোর জন্য আপনার লেখা দিন..." class="w-full p-3 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">${esc(pop.text || '')}</textarea>
                             </div>
-                            <div class="flex items-center justify-between pt-1">
+                            <div>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">কত সেকেন্ড পর নিজ থেকে বন্ধ হবে (স্ট্যান্ডার্ড: ৮ সেকেন্ড)</label>
+                                <input type="number" id="popupDuration" min="3" max="60" value="${esc(pop.duration || 8)}" class="w-32 px-3 py-2 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
+                            </div>
+                            <div class="flex items-center justify-between pt-1 flex-wrap gap-2">
                                 <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-neutral-800">
                                     <input type="checkbox" id="popupActive" ${pop.active ? 'checked' : ''} class="w-4 h-4 accent-emerald-600 rounded">
                                     <span>পপআপ উইন্ডো চালু রাখুন</span>
@@ -1193,7 +1287,6 @@
                         </form>
                     </div>
 
-                    <!-- বিজ্ঞপ্তি পাঠান -->
                     <div class="clean-card p-5">
                         <h3 class="font-bold text-neutral-900 text-sm mb-3"><i class="fa-solid fa-bullhorn text-emerald-600 mr-1"></i> বিজ্ঞপ্তি পাঠান</h3>
                         <form onsubmit="handleEditorBroadcast(event)" class="space-y-3">
@@ -1206,34 +1299,32 @@
                         </form>
                     </div>
 
-                    <!-- লাইভ কার্ড আপডেট -->
-                    <div class="clean-card p-5 space-y-2.5">
+                    <div class="clean-card p-5 space-y-3">
                         <div class="flex justify-between items-center flex-wrap gap-2">
                             <h3 class="font-bold text-neutral-900 text-sm"><i class="fa-solid fa-rotate text-emerald-600 mr-1"></i> লাইভ কার্ড আপডেট</h3>
                             <div class="flex gap-2">
-                                <button onclick="refreshNewsEveryHour(true)" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-bold">সংবাদ রিফ্রেশ</button>
-                                <button onclick="refreshOtherStoriesEvery6Hours(true)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold">কুরআন ও হাদিস রিফ্রেশ</button>
+                                <button onclick="refreshNewsEveryHour(true)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold">সংবাদ রিফ্রেশ</button>
+                                <button onclick="refreshOtherStoriesEvery6Hours(true)" class="bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded-xl text-xs font-bold">কুরআন ও হাদিস রিফ্রেশ</button>
                             </div>
                         </div>
                         <p class="text-xs text-neutral-500">
-                            সংবাদ: ${newsUpdatedAt ? timeAgo(newsUpdatedAt) : 'ক্যাশ থেকে লোড'} · কুরআন/হাদিস: ${otherUpdatedAt ? timeAgo(otherUpdatedAt) : 'ক্যাশ থেকে লোড'}
+                            সংবাদ: ${newsUpdatedAt ? timeAgo(newsUpdatedAt) : 'এখনো হয়নি'} · কুরআন ও হাদিস: ${otherUpdatedAt ? timeAgo(otherUpdatedAt) : 'এখনো হয়নি'}
                         </p>
                     </div>
 
-                    <!-- সদস্য তালিকা -->
                     <div class="clean-card p-5 space-y-3">
                         <h3 class="font-bold text-neutral-900 text-sm"><i class="fa-solid fa-users text-emerald-600 mr-1"></i> সদস্য তালিকা (${bnNum(shownUsers.length)})</h3>
-                        <input id="adminSearch" type="search" value="${esc(state.adminQuery || '')}" oninput="state.adminQuery = this.value; render()" placeholder="নাম বা নম্বর দিয়ে খুঁজুন" class="w-full px-3.5 py-2 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
+                        <input id="adminSearch" type="search" value="${esc(state.adminQuery || '')}" oninput="state.adminQuery = this.value; render()" placeholder="নাম বা নম্বর দিয়ে খুঁজুন" class="w-full px-4 py-2.5 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
                         ${shownUsers.map(u => `
                             <div class="flex items-center justify-between gap-2 p-3 bg-neutral-50 rounded-xl border border-neutral-100">
                                 <div class="flex items-center gap-3 min-w-0 cursor-pointer" onclick="viewUserProfile('${esc(u.phone)}')">
                                     <img src="${safeUrl(u.profilePhoto)}" class="w-9 h-9 rounded-full object-cover flex-shrink-0">
                                     <div class="min-w-0">
-                                        <p class="font-bold text-xs text-neutral-900 truncate">${esc(u.name)}</p>
+                                        <p class="font-bold text-sm text-neutral-900 truncate">${esc(u.name)}</p>
                                         <p class="text-[11px] text-neutral-500 truncate">${esc(u.phone)} · ব্যাচ ${esc(u.sscBatch)}</p>
                                     </div>
                                 </div>
-                                <button onclick="adminDeleteUser('${esc(u.phone)}')" class="text-rose-600 hover:bg-rose-50 px-3 py-1 rounded-lg text-xs font-bold border border-rose-200 flex-shrink-0">ডিলিট</button>
+                                <button onclick="adminDeleteUser('${esc(u.phone)}')" class="text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-xl text-xs font-bold border border-rose-200 flex-shrink-0">ডিলিট</button>
                             </div>
                         `).join('')}
                     </div>
@@ -1241,43 +1332,63 @@
             `;
         }
 
-        // পপআপ উইন্ডো রেন্ডার (লগইন করার পর ফার্স্ট পেজে ছবিসহ শো করবে)
+        // পপআপ উইন্ডো রেন্ডার (কোনো ঘোষণা বা বাড়তি লেখা ছাড়া: শুধু ইউজারের দেওয়া ছবি ও বার্তা + ক্রস আইকন, এবং স্ট্যান্ডার্ড সেকেন্ড পর নিজ থেকেই ভ্যানিশ)
         function renderWelcomePopup() {
             if (!state.currentUser || state.currentView !== 'feed') return '';
             const pop = state.popupConfig;
             if (!pop || !pop.active) return '';
             const popId = pop.updatedAt || 'default_popup';
             if (state.popupDismissedId === popId) return '';
+            const displayText = [pop.title, pop.text].filter(Boolean).join('\n').trim();
+            if (!pop.image && !displayText) return '';
+            const durationSec = Math.max(3, Math.min(60, Number(pop.duration) || 8));
 
             return `
-                <div id="welcomePopupOverlay" class="fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-[70] flex items-center justify-center p-4">
-                    <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl fade-in relative">
-                        <button onclick="dismissWelcomePopup('${esc(popId)}')" aria-label="বন্ধ করুন" class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-neutral-800 border border-neutral-200 flex items-center justify-center shadow-sm">
-                            <i class="fa-solid fa-xmark"></i>
+                <div id="welcomePopupOverlay" data-popup-id="${esc(popId)}" data-popup-sec="${durationSec}" class="fixed inset-0 bg-neutral-900/55 backdrop-blur-xs z-[70] flex items-center justify-center p-4">
+                    <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl relative">
+                        <button type="button" onclick="dismissWelcomePopup('${esc(popId)}')" aria-label="বন্ধ করুন" class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-white/95 hover:bg-neutral-100 text-neutral-900 border border-neutral-200 flex items-center justify-center shadow-sm transition">
+                            <i class="fa-solid fa-xmark text-sm"></i>
                         </button>
                         ${pop.image ? `
-                            <div class="w-full max-h-60 bg-neutral-100 overflow-hidden border-b border-neutral-100">
-                                <img src="${safeUrl(pop.image)}" alt="Popup image" class="w-full h-56 object-cover">
+                            <div class="w-full max-h-72 bg-neutral-100 overflow-hidden">
+                                <img src="${safeUrl(pop.image)}" alt="Popup image" class="w-full max-h-72 object-cover">
                             </div>
                         ` : ''}
-                        <div class="p-5">
-                            <div class="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full mb-2">
-                                <i class="fa-solid fa-bullhorn"></i> ঘোষণা
+                        ${displayText ? `
+                            <div class="p-5 ${!pop.image ? 'pt-11' : ''}">
+                                <p class="text-sm text-neutral-900 leading-relaxed whitespace-pre-line">${esc(displayText)}</p>
                             </div>
-                            ${pop.title ? `<h3 class="text-lg font-bold text-neutral-900 mb-1.5">${esc(pop.title)}</h3>` : ''}
-                            ${pop.text ? `<p class="text-sm text-neutral-700 leading-relaxed whitespace-pre-line mb-4">${esc(pop.text)}</p>` : ''}
-                            <button onclick="dismissWelcomePopup('${esc(popId)}')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
-                                ঠিক আছে, বন্ধ করুন
-                            </button>
+                        ` : ''}
+                        <div class="h-1 bg-neutral-100 w-full overflow-hidden">
+                            <div class="h-full bg-emerald-600" style="animation: popupShrink ${durationSec}s linear forwards;"></div>
                         </div>
                     </div>
                 </div>
             `;
         }
 
+        function schedulePopupAutoDismiss() {
+            if (popupAutoCloseTimer) {
+                clearTimeout(popupAutoCloseTimer);
+                popupAutoCloseTimer = null;
+            }
+            const overlay = document.getElementById('welcomePopupOverlay');
+            if (!overlay) return;
+            const popId = overlay.getAttribute('data-popup-id');
+            const sec = Number(overlay.getAttribute('data-popup-sec')) || 8;
+            popupAutoCloseTimer = setTimeout(() => {
+                dismissWelcomePopup(popId);
+            }, sec * 1000);
+        }
+
         function dismissWelcomePopup(popId) {
+            if (popupAutoCloseTimer) {
+                clearTimeout(popupAutoCloseTimer);
+                popupAutoCloseTimer = null;
+            }
             state.popupDismissedId = popId;
-            render();
+            const overlay = document.getElementById('welcomePopupOverlay');
+            if (overlay) overlay.remove();
         }
 
         function previewPopupNow() {
@@ -1289,20 +1400,21 @@
         async function handleSavePopupConfig(event) {
             event.preventDefault();
             if (!state.currentUser?.isEditor) return;
-            const title = document.getElementById('popupTitle').value.trim();
             const image = document.getElementById('popupImage').value.trim();
             const text = document.getElementById('popupText').value.trim();
+            const duration = Math.max(3, Math.min(60, parseInt(document.getElementById('popupDuration').value, 10) || 8));
             const active = document.getElementById('popupActive').checked;
 
-            if (active && !title && !text && !image) {
-                showToast('পপআপ চালু করতে অন্তত শিরোনাম, ছবি বা বার্তা দিন!', true);
+            if (active && !text && !image) {
+                showToast('পপআপ চালু করতে ছবি অথবা আপনার বার্তা লিখুন!', true);
                 return;
             }
 
             const payload = {
-                title,
+                title: '',
                 image,
                 text,
+                duration,
                 active,
                 updatedAt: 'pop_' + Date.now()
             };
@@ -1311,7 +1423,7 @@
                 await db.collection('config').doc('popup').set(payload);
                 state.popupConfig = payload;
                 state.popupDismissedId = null;
-                showToast(active ? 'পপআপ উইন্ডো চালু ও সেভ হয়েছে!' : 'পপআপ উইন্ডো বন্ধ করা হয়েছে।');
+                showToast(active ? 'পপআপ উইন্ডো সেভ ও চালু হয়েছে!' : 'পপআপ উইন্ডো বন্ধ করা হয়েছে।');
                 render();
             } catch (e) {
                 showToast('পপআপ সেভ করা যায়নি। আবার চেষ্টা করুন।', true);
@@ -1324,7 +1436,7 @@
             if (!post) return '';
 
             return `
-                <div class="fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div class="fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
                     <div class="bg-white border border-neutral-200 rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5 relative shadow-xl">
                         <button onclick="closePostModal()" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
                             <i class="fa-solid fa-xmark"></i>
@@ -1336,187 +1448,36 @@
             `;
         }
 
-        function openEditProfileModal() {
-            const old = document.getElementById('editProfileModal');
-            if (old) old.remove();
-            const div = document.createElement('div');
-            div.id = 'editProfileModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4';
-            div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 relative shadow-xl fade-in">
-                    <button onclick="closeModalById('editProfileModal')" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                    <h3 class="text-base font-bold text-neutral-900 mb-4">প্রোফাইল এডিট করুন</h3>
-                    <form onsubmit="handleUpdateProfile(event)" class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">পূর্ণ নাম</label>
-                            <input type="text" id="editName" value="${esc(state.currentUser.name)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">বয়স</label>
-                            <input type="number" id="editAge" value="${esc(state.currentUser.age)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">ঠিকানা</label>
-                            <input type="text" id="editLocation" value="${esc(state.currentUser.location)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">এসএসসি ব্যাচ</label>
-                            <input type="text" id="editBatch" value="${esc(state.currentUser.sscBatch)}" required pattern="[0-9]{4}" maxlength="4" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        </div>
-                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs">সংরক্ষণ করুন</button>
-                    </form>
+        function renderEditProfileModal() {
+            return `
+                <div id="editProfileModal" class="fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+                    <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 relative shadow-xl">
+                        <button onclick="closeEditProfileModal()" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <h3 class="text-base font-bold text-neutral-900 mb-4">প্রোফাইল এডিট করুন</h3>
+                        <form onsubmit="handleUpdateProfile(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">পূর্ণ নাম</label>
+                                <input type="text" id="editName" value="${esc(state.currentUser.name)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">বয়স</label>
+                                <input type="number" id="editAge" value="${esc(state.currentUser.age)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">ঠিকানা</label>
+                                <input type="text" id="editLocation" value="${esc(state.currentUser.location)}" required class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-neutral-700 mb-1">এসএসসি ব্যাচ</label>
+                                <input type="text" id="editBatch" value="${esc(state.currentUser.sscBatch)}" required pattern="[0-9]{4}" maxlength="4" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm">সংরক্ষণ করুন</button>
+                        </form>
+                    </div>
                 </div>
             `;
-            document.body.appendChild(div);
-        }
-
-        // প্রোফাইল ইমেইল পরিবর্তন মডাল
-        function openChangeEmailModal() {
-            const old = document.getElementById('changeEmailModal');
-            if (old) old.remove();
-            const currentEmail = auth.currentUser?.email || state.currentUser.email || '';
-            const div = document.createElement('div');
-            div.id = 'changeEmailModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4';
-            div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 relative shadow-xl fade-in">
-                    <button onclick="closeModalById('changeEmailModal')" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                    <h3 class="text-base font-bold text-neutral-900 mb-1">ইমেইল পরিবর্তন করুন</h3>
-                    <p class="text-xs text-neutral-500 mb-4">বর্তমান ইমেইল: <strong>${esc(currentEmail)}</strong></p>
-                    <form onsubmit="handleUpdateEmail(event)" class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">নতুন ইমেইল ঠিকানা</label>
-                            <input type="email" id="newEmailInput" required placeholder="newemail@example.com" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-neutral-700 mb-1">বর্তমান পাসওয়ার্ড (নিরাপত্তার জন্য)</label>
-                            <input type="password" id="emailConfirmPassword" required placeholder="••••••••" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
-                        </div>
-                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs">ইমেইল আপডেট করুন</button>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(div);
-        }
-
-        async function handleUpdateEmail(event) {
-            event.preventDefault();
-            const newEmail = document.getElementById('newEmailInput').value.trim().toLowerCase();
-            const currentPass = document.getElementById('emailConfirmPassword').value;
-            const user = auth.currentUser;
-            if (!user || !newEmail || !currentPass) return;
-
-            if (newEmail === (user.email || '').toLowerCase()) {
-                showToast('নতুন ইমেইল এবং বর্তমান ইমেইল একই!', true);
-                return;
-            }
-
-            try {
-                const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPass);
-                await user.reauthenticateWithCredential(cred);
-                await user.updateEmail(newEmail);
-
-                // Firestore phones ম্যাপিং আপডেট যাতে মোবাইল দিয়েও নতুন ইমেইলে লগইন করা যায়
-                const phoneKey = state.currentUser.phone.replace('+', '');
-                await db.collection('phones').doc(phoneKey).set({
-                    uid: user.uid,
-                    email: newEmail
-                }, { merge: true }).catch(() => {});
-
-                state.currentUser.email = newEmail;
-                closeModalById('changeEmailModal');
-                showToast('আপনার ইমেইল সফলভাবে পরিবর্তন হয়েছে!');
-                render();
-            } catch (e) {
-                const msg = {
-                    'auth/wrong-password': 'বর্তমান পাসওয়ার্ড ভুল হয়েছে!',
-                    'auth/invalid-credential': 'বর্তমান পাসওয়ার্ড ভুল হয়েছে!',
-                    'auth/email-already-in-use': 'এই ইমেইলটি অন্য একাউন্টে ব্যবহৃত হচ্ছে!',
-                    'auth/invalid-email': 'সঠিক ইমেইল ঠিকানা দিন!',
-                    'auth/operation-not-allowed': 'ফায়ারবেস কনসোলে সরাসরি ইমেইল পরিবর্তন সক্রিয় থাকতে হবে।'
-                };
-                showToast(msg[e.code] || 'ইমেইল পরিবর্তন করা যায়নি। আবার চেষ্টা করুন।', true);
-            }
-        }
-
-        function openChangePhotoModal() {
-            const old = document.getElementById('changePhotoModal');
-            if (old) old.remove();
-            const div = document.createElement('div');
-            div.id = 'changePhotoModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4';
-            div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 relative shadow-xl fade-in">
-                    <button onclick="closeModalById('changePhotoModal')" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                    <h3 class="text-base font-bold text-neutral-900 mb-3">প্রোফাইল ছবি পরিবর্তন</h3>
-                    <form onsubmit="handleUpdatePhoto(event)" class="space-y-3">
-                        <input type="url" id="newPhotoUrl" required placeholder="ছবির লিংক (https://...)" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm focus:border-emerald-600 focus:outline-none">
-                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs">ছবি সেভ করুন</button>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(div);
-        }
-
-        async function handleUpdatePhoto(event) {
-            event.preventDefault();
-            const url = document.getElementById('newPhotoUrl').value.trim();
-            if (!url) return;
-            state.currentUser.profilePhoto = url;
-            const u = state.users.find(x => x.phone === state.currentUser.phone);
-            if (u) u.profilePhoto = url;
-            await saveDataToCloud();
-            closeModalById('changePhotoModal');
-            showToast('প্রোফাইল ছবি আপডেট হয়েছে!');
-            render();
-        }
-
-        function openChangePasswordModal() {
-            const old = document.getElementById('changePassModal');
-            if (old) old.remove();
-            const div = document.createElement('div');
-            div.id = 'changePassModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4';
-            div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-md w-full p-6 relative shadow-xl fade-in">
-                    <button onclick="closeModalById('changePassModal')" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                    <h3 class="text-base font-bold text-neutral-900 mb-3">পাসওয়ার্ড পরিবর্তন</h3>
-                    <form onsubmit="handleUpdatePassword(event)" class="space-y-3">
-                        <input type="password" id="curPassInput" required placeholder="বর্তমান পাসওয়ার্ড" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        <input type="password" id="newPassInput" required minlength="6" placeholder="নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)" class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        <button type="submit" class="w-full bg-neutral-900 hover:bg-neutral-800 text-white py-2.5 rounded-xl font-bold text-xs">পাসওয়ার্ড পরিবর্তন করুন</button>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(div);
-        }
-
-        async function handleUpdatePassword(event) {
-            event.preventDefault();
-            const cur = document.getElementById('curPassInput').value;
-            const np = document.getElementById('newPassInput').value.trim();
-            try {
-                const cred = firebase.auth.EmailAuthProvider.credential(auth.currentUser.email, cur);
-                await auth.currentUser.reauthenticateWithCredential(cred);
-                await auth.currentUser.updatePassword(np);
-                closeModalById('changePassModal');
-                showToast('পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে!');
-            } catch (e) {
-                showToast('বর্তমান পাসওয়ার্ড ভুল বা পরিবর্তন সম্ভব হয়নি।', true);
-            }
-        }
-
-        function closeModalById(id) {
-            const m = document.getElementById(id);
-            if (m) m.remove();
         }
 
         function switchView(view) {
@@ -1527,9 +1488,10 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // সরাসরি সাইনআপ (কোনো ইমেইল ভেরিফিকেশন ছাড়াই)
+        // ইমেইল ভেরিফিকেশন ছাড়াই সরাসরি সাইনআপ
         async function handleSignup(event) {
             event.preventDefault();
+            const btn = document.getElementById('signupSubmitBtn');
             const name = document.getElementById('signupName').value.trim();
             const email = document.getElementById('signupEmail').value.trim().toLowerCase();
             const password = document.getElementById('signupPassword').value;
@@ -1543,42 +1505,36 @@
             if (password.length < 6) { showToast('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!', true); return; }
             if (!/^1[0-9]{9}$/.test(rawPhone)) { showToast('মোবাইল নম্বর 1 দিয়ে শুরু ১০ ডিজিটের হতে হবে!', true); return; }
             if (!/^[0-9]{4}$/.test(sscBatch)) { showToast('এসএসসি ব্যাচ ৪ ডিজিটের হতে হবে!', true); return; }
-            if (await lookupEmail(rawPhone)) { showToast('এই মোবাইল নম্বরে ইতিমধ্যে একটি আইডি আছে!', true); return; }
 
-            const phone = '+880' + rawPhone;
+            if (btn) { btn.disabled = true; btn.textContent = 'একাউন্ট তৈরি হচ্ছে...'; }
             state.signingUp = true;
 
-            let cred;
             try {
-                cred = await auth.createUserWithEmailAndPassword(email, password);
-            } catch (e) {
-                state.signingUp = false;
-                const msg = {
-                    'auth/email-already-in-use': 'এই ইমেইল ইতিমধ্যে ব্যবহৃত হয়েছে!',
-                    'auth/invalid-email': 'সঠিক ইমেইল ঠিকানা দিন!',
-                    'auth/weak-password': 'পাসওয়ার্ড আরও শক্তিশালী দিন!'
+                if (await lookupEmail(rawPhone)) {
+                    showToast('এই মোবাইল নম্বরে ইতিমধ্যে একটি আইডি আছে!', true);
+                    state.signingUp = false;
+                    if (btn) { btn.disabled = false; btn.textContent = 'সাইন আপ করুন'; }
+                    return;
+                }
+
+                const phone = '+880' + rawPhone;
+                const cred = await auth.createUserWithEmailAndPassword(email, password);
+                const uid = cred.user.uid;
+                const profile = {
+                    uid,
+                    name,
+                    phone,
+                    profession,
+                    age,
+                    location,
+                    sscBatch,
+                    profilePhoto: getAutoAvatar()
                 };
-                showToast(msg[e.code] || 'একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।', true);
-                return;
-            }
 
-            const uid = cred.user.uid;
-            const profile = {
-                uid,
-                name,
-                phone,
-                profession,
-                age,
-                location,
-                sscBatch,
-                profilePhoto: getAutoAvatar()
-            };
-
-            try {
-                const b = db.batch();
-                b.set(db.collection('phones').doc('880' + rawPhone), { uid, email });
-                b.set(db.collection('users').doc(uid), profile);
-                await b.commit();
+                const batch = db.batch();
+                batch.set(db.collection('phones').doc(phone.replace('+', '')), { uid, email });
+                batch.set(db.collection('users').doc(uid), profile);
+                await batch.commit();
 
                 const nid = 'n_' + Date.now();
                 await db.collection('notifications').doc(nid).set({
@@ -1591,15 +1547,21 @@
                     createdAt: Date.now()
                 }).catch(() => {});
 
-                state.signingUp = false;
                 state.users.push(profile);
+                state.signingUp = false;
                 applyMe();
-                showToast('সাইনআপ সফল হয়েছে! স্বাগতম।');
+                startListeners();
+                showToast('একাউন্ট তৈরি সফল হয়েছে!');
                 render();
             } catch (e) {
                 state.signingUp = false;
-                await cred.user.delete().catch(() => {});
-                showToast('একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।', true);
+                const msg = {
+                    'auth/email-already-in-use': 'এই ইমেইল ইতিমধ্যে ব্যবহৃত হয়েছে!',
+                    'auth/invalid-email': 'সঠিক ইমেইল ঠিকানা দিন!',
+                    'auth/weak-password': 'পাসওয়ার্ড আরও শক্তিশালী দিন!'
+                };
+                showToast(msg[e.code] || 'একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।', true);
+                if (btn) { btn.disabled = false; btn.textContent = 'সাইন আপ করুন'; }
             }
         }
 
@@ -1635,40 +1597,20 @@
             stopListeners();
             auth.signOut().catch(() => {});
             state.currentUser = null;
-            state.popupDismissedId = null;
             switchView('login');
         }
 
-        function recoverPasswordPrompt() {
-            const old = document.getElementById('recoverModal');
-            if (old) old.remove();
-            const div = document.createElement('div');
-            div.id = 'recoverModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4';
-            div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-sm w-full p-6 relative shadow-xl fade-in">
-                    <button onclick="closeModalById('recoverModal')" class="absolute top-4 right-4 text-neutral-500 hover:text-neutral-900 w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                    <h3 class="text-base font-bold text-neutral-900 mb-2">পাসওয়ার্ড পুনরুদ্ধার</h3>
-                    <p class="text-xs text-neutral-500 mb-3">আপনার একাউন্টের ইমেইল বা মোবাইল নম্বর দিন:</p>
-                    <form onsubmit="handleRecoverSubmit(event)" class="space-y-3">
-                        <input type="text" id="recoverIdInput" required placeholder="name@example.com অথবা 017..." class="w-full p-2.5 rounded-xl border border-neutral-300 text-sm">
-                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs">রিসেট লিংক পাঠান</button>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(div);
-        }
-
-        async function handleRecoverSubmit(event) {
-            event.preventDefault();
-            const raw = document.getElementById('recoverIdInput').value;
+        async function recoverPasswordPrompt() {
+            const raw = await showPromptModal({
+                title: 'পাসওয়ার্ড রিসেট',
+                placeholder: 'আপনার ইমেইল বা মোবাইল নম্বর দিন',
+                confirmLabel: 'লিংক পাঠান'
+            });
+            if (!raw) return;
             const id = parseLoginId(raw);
             if (!id) { showToast('সঠিক ইমেইল বা মোবাইল নম্বর দিন!', true); return; }
             const email = id.email || await lookupEmail(id.phone);
-            if (email) { try { await auth.sendPasswordResetEmail(email); } catch (e) {} }
-            closeModalById('recoverModal');
+            if (email) { try { await auth.sendPasswordResetEmail(email); } catch (e) { console.error(e); } }
             showToast('একাউন্ট থাকলে ইমেইলে পাসওয়ার্ড রিসেট লিংক পাঠানো হয়েছে।');
         }
 
@@ -1695,8 +1637,8 @@
             state.posts.unshift(newPost);
             document.getElementById('postContent').value = '';
             document.getElementById('postImage').value = '';
-            render();
             await saveDataToCloud();
+            render();
         }
 
         function togglePostMenu(e, id) {
@@ -1708,20 +1650,25 @@
 
         window.addEventListener('click', () => document.querySelectorAll('[id^="pm-"]').forEach(m => m.classList.add('hidden')));
 
+        function closeEditPost() {
+            const m = document.getElementById('editPostModal');
+            if (m) m.remove();
+        }
+
         function editPost(postId) {
             const post = state.posts.find(p => p.id === postId);
             if (!post || post.authorPhone !== state.currentUser.phone) return;
-            closeModalById('editPostModal');
+            closeEditPost();
             const div = document.createElement('div');
             div.id = 'editPostModal';
-            div.className = 'fixed inset-0 bg-neutral-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4';
+            div.className = 'fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-[60] flex items-center justify-center p-4';
             div.innerHTML = `
-                <div class="bg-white border border-neutral-200 rounded-2xl max-w-lg w-full p-6 shadow-xl fade-in">
+                <div class="bg-white border border-neutral-200 rounded-2xl max-w-lg w-full p-6 shadow-xl">
                     <h3 class="text-base font-bold text-neutral-900 mb-3">পোস্ট এডিট করুন</h3>
                     <textarea id="editPostText" rows="5" maxlength="5000" class="w-full p-3 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none text-sm"></textarea>
                     <input id="editPostImage" type="text" placeholder="ছবির লিংক (ঐচ্ছিক)" class="w-full mt-3 px-3 py-2 rounded-xl border border-neutral-300 text-xs focus:border-emerald-600 focus:outline-none">
                     <div class="flex justify-end gap-2 mt-4">
-                        <button onclick="closeModalById('editPostModal')" class="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-xs font-semibold">বাতিল</button>
+                        <button onclick="closeEditPost()" class="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-xs font-bold">বাতিল</button>
                         <button onclick="saveEditedPost('${esc(post.id)}')" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">সংরক্ষণ</button>
                     </div>
                 </div>`;
@@ -1739,30 +1686,31 @@
             post.content = content;
             post.image = image;
             post.editedAt = Date.now();
-            closeModalById('editPostModal');
-            render();
+            closeEditPost();
             await saveDataToCloud();
+            render();
         }
 
-        function deletePost(postId) {
-            showConfirmModal('আপনি কি নিশ্চিত এই পোস্টটি ডিলিট করতে চান?', async () => {
+        async function deletePost(postId) {
+            if (await showConfirmModal('আপনি কি নিশ্চিত এই পোস্টটি ডিলিট করতে চান?', 'ডিলিট করুন')) {
                 state.activeModalPostId = null;
                 state.posts = state.posts.filter(p => p.id !== postId);
-                render();
                 await saveDataToCloud();
-                showToast('পোস্ট ডিলিট হয়েছে।');
-            });
+                render();
+            }
         }
 
+        // রিঅ্যাকশন দিলে পেজ রি-রেন্ডার না করে তাৎক্ষণিক বাটন আপডেট (একটুও না কাঁপার জন্য)
         async function toggleReaction(postId, reactionType) {
             const post = state.posts.find(p => p.id === postId);
             if (!post) return;
-            const alreadySelected = post.reactions[reactionType].includes(state.currentUser.phone);
+            if (!post.reactions) post.reactions = { 'Masaallah': [], 'Dua Roilo': [], 'Innalillah': [] };
+            const alreadySelected = (post.reactions[reactionType] || []).includes(state.currentUser.phone);
             Object.keys(post.reactions).forEach(type => {
-                post.reactions[type] = post.reactions[type].filter(phone => phone !== state.currentUser.phone);
+                post.reactions[type] = (post.reactions[type] || []).filter(phone => phone !== state.currentUser.phone);
             });
             if (!alreadySelected) post.reactions[reactionType].push(state.currentUser.phone);
-            render();
+            updatePostReactionsDOM(postId);
             await saveDataToCloud();
         }
 
@@ -1796,38 +1744,35 @@
 
             input.value = '';
             render();
-            if (state.activeModalPostId) state.activeModalPostId = postId;
             await saveDataToCloud();
         }
 
-        function deleteComment(postId, commentId) {
+        async function deleteComment(postId, commentId) {
             const post = state.posts.find(p => p.id === postId);
-            if (!post) return;
-            showConfirmModal('মন্তব্যটি মুছে ফেলবেন?', async () => {
-                post.comments = (post.comments || []).filter(c => c.id !== commentId);
-                render();
-                await saveDataToCloud();
-            });
+            if (!post || !(await showConfirmModal('মন্তব্যটি মুছে ফেলবেন?', 'মুছুন'))) return;
+            post.comments = (post.comments || []).filter(c => c.id !== commentId);
+            await saveDataToCloud();
+            render();
         }
 
         async function clearAllNotifications() {
             state.notifications = state.notifications.filter(n => n.recipientPhone !== state.currentUser.phone);
-            render();
             await saveDataToCloud();
+            render();
         }
 
         async function deleteNotification(notifId) {
             state.notifications = state.notifications.filter(n => n.id !== notifId);
-            render();
             await saveDataToCloud();
+            render();
         }
 
         async function markAsRead(notifId) {
             const notif = state.notifications.find(n => n.id === notifId);
             if (notif) {
                 notif.isRead = true;
-                render();
                 await saveDataToCloud();
+                render();
             }
         }
 
@@ -1858,6 +1803,125 @@
             render();
         }
 
+        // নিজের ইমেইল পরিবর্তন ফাংশন
+        async function promptChangeEmail() {
+            const curPass = await showPromptModal({
+                title: 'নিরাপত্তার জন্য বর্তমান পাসওয়ার্ড দিন',
+                placeholder: 'বর্তমান পাসওয়ার্ড',
+                type: 'password',
+                confirmLabel: 'পরবর্তী'
+            });
+            if (!curPass) return;
+
+            try {
+                await auth.signInWithEmailAndPassword(auth.currentUser.email, curPass);
+            } catch (e) {
+                showToast('বর্তমান পাসওয়ার্ড ভুল হয়েছে!', true);
+                return;
+            }
+
+            const newEmailRaw = await showPromptModal({
+                title: 'নতুন ইমেইল ঠিকানা দিন',
+                placeholder: 'newemail@example.com',
+                type: 'email',
+                defaultValue: auth.currentUser.email || '',
+                confirmLabel: 'ইমেইল আপডেট করুন'
+            });
+            if (!newEmailRaw) return;
+            const newEmail = newEmailRaw.trim().toLowerCase();
+            if (!newEmail || !newEmail.includes('@')) {
+                showToast('সঠিক ইমেইল ঠিকানা দিন!', true);
+                return;
+            }
+            if (newEmail === (auth.currentUser.email || '').toLowerCase()) {
+                showToast('এটিই আপনার বর্তমান ইমেইল।');
+                return;
+            }
+
+            try {
+                await auth.currentUser.updateEmail(newEmail);
+                state.currentUser.email = newEmail;
+                const phoneDocId = state.currentUser.phone.replace('+', '');
+                await db.collection('phones').doc(phoneDocId).set({
+                    uid: state.currentUser.uid,
+                    email: newEmail
+                }, { merge: true }).catch(() => {});
+                showToast('আপনার ইমেইল সফলভাবে পরিবর্তিত হয়েছে!');
+                render();
+            } catch (e) {
+                if (e.code === 'auth/operation-not-allowed' && auth.currentUser.verifyBeforeUpdateEmail) {
+                    try {
+                        await auth.currentUser.verifyBeforeUpdateEmail(newEmail);
+                        showToast('নতুন ইমেইলে একটি নিশ্চিতকরণ লিংক পাঠানো হয়েছে।');
+                        return;
+                    } catch (err2) {}
+                }
+                const errMap = {
+                    'auth/email-already-in-use': 'এই ইমেইল ইতিমধ্যে অন্য একাউন্টে ব্যবহৃত হচ্ছে!',
+                    'auth/invalid-email': 'সঠিক ইমেইল ঠিকানা দিন!'
+                };
+                showToast(errMap[e.code] || 'ইমেইল পরিবর্তন করা যায়নি, আবার চেষ্টা করুন।', true);
+            }
+        }
+
+        async function promptChangePhoto() {
+            const url = await showPromptModal({
+                title: 'প্রোফাইল ছবির লিংক দিন',
+                placeholder: 'https://example.com/photo.jpg',
+                confirmLabel: 'আপডেট করুন'
+            });
+            if (!url || !url.trim()) return;
+            state.currentUser.profilePhoto = url.trim();
+            const u = state.users.find(x => x.phone === state.currentUser.phone);
+            if (u) u.profilePhoto = state.currentUser.profilePhoto;
+            await saveDataToCloud();
+            render();
+        }
+
+        async function promptChangePassword() {
+            const cur = await showPromptModal({
+                title: 'বর্তমান পাসওয়ার্ড দিন',
+                placeholder: '••••••••',
+                type: 'password',
+                confirmLabel: 'পরবর্তী'
+            });
+            if (!cur) return;
+            try {
+                await auth.signInWithEmailAndPassword(auth.currentUser.email, cur);
+            } catch (e) {
+                showToast('বর্তমান পাসওয়ার্ড ভুল!', true);
+                return;
+            }
+            const npRaw = await showPromptModal({
+                title: 'নতুন পাসওয়ার্ড দিন (কমপক্ষে ৬ অক্ষর)',
+                placeholder: '••••••',
+                type: 'password',
+                confirmLabel: 'পরিবর্তন করুন'
+            });
+            const np = (npRaw || '').trim();
+            if (np.length < 6) {
+                if (np) showToast('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন!', true);
+                return;
+            }
+            try {
+                await auth.currentUser.updatePassword(np);
+                showToast('পাসওয়ার্ড পরিবর্তন হয়েছে!');
+            } catch (e) {
+                showToast('পাসওয়ার্ড পরিবর্তন করা যায়নি।', true);
+            }
+        }
+
+        function openEditProfileModal() {
+            const div = document.createElement('div');
+            div.innerHTML = renderEditProfileModal();
+            document.body.appendChild(div.firstElementChild);
+        }
+
+        function closeEditProfileModal() {
+            const modal = document.getElementById('editProfileModal');
+            if (modal) modal.remove();
+        }
+
         async function handleUpdateProfile(event) {
             event.preventDefault();
             const sscBatch = document.getElementById('editBatch').value.trim();
@@ -1876,21 +1940,20 @@
                 u.sscBatch = state.currentUser.sscBatch;
             }
 
-            closeModalById('editProfileModal');
-            render();
             await saveDataToCloud();
+            closeEditProfileModal();
             showToast('প্রোফাইল আপডেট হয়েছে!');
+            render();
         }
 
-        function adminDeleteUser(phone) {
-            showConfirmModal(`এই ইউজার (${phone}) এবং তার পোস্ট মুছে ফেলবেন?`, async () => {
+        async function adminDeleteUser(phone) {
+            if (await showConfirmModal(`এই ইউজার (${phone}) এবং তার পোস্ট মুছে ফেলবেন?`, 'ইউজার ডিলিট')) {
                 db.collection('phones').doc(phone.replace('+', '')).delete().catch(() => {});
                 state.users = state.users.filter(u => u.phone !== phone);
                 state.posts = state.posts.filter(p => p.authorPhone !== phone);
                 await saveDataToCloud();
-                showToast('ইউজার ডিলিট করা হয়েছে।');
                 switchView('all_members');
-            });
+            }
         }
 
         async function handleEditorBroadcast(event) {
@@ -1904,7 +1967,7 @@
                     state.notifications.unshift({
                         id: 'nb_' + Date.now() + '_' + u.phone,
                         recipientPhone: u.phone,
-                        text: `[অ্যাডমিন ঘোষণা]: ${text}`,
+                        text: text,
                         isRead: false,
                         isEditorBroadcast: true,
                         date: 'এইমাত্র',
@@ -1915,7 +1978,7 @@
                 state.notifications.unshift({
                     id: 'nb_' + Date.now(),
                     recipientPhone: target,
-                    text: `[অ্যাডমিন বার্তা]: ${text}`,
+                    text: text,
                     isRead: false,
                     isEditorBroadcast: true,
                     date: 'এইমাত্র',
@@ -1971,6 +2034,7 @@
                 const el = document.getElementById(focusId);
                 if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
             }
+            schedulePopupAutoDismiss();
         }
     </script>
 </body>
