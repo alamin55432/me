@@ -12,8 +12,18 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Hind Siliguri', system-ui, sans-serif; }
+        .fade-in { animation: fi .35s ease both; }
+        @keyframes fi { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        .card-hover { transition: box-shadow .2s ease; }
+        .card-hover:hover { box-shadow: 0 10px 28px -10px rgb(6 78 59 / .3); }
+        .story-card { background: linear-gradient(135deg, #065f46 0%, #0f766e 55%, #115e59 100%); }
+        .story-card::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 90% 10%, rgb(255 255 255 / .14), transparent 45%); pointer-events: none; }
+    </style>
 </head>
-<body class="bg-stone-50 text-stone-800 font-sans antialiased min-h-screen pb-12">
+<body class="bg-gradient-to-b from-emerald-50/70 via-stone-50 to-stone-50 text-stone-800 antialiased min-h-screen pb-20 sm:pb-12">
 
     <div id="app" class="min-h-screen flex flex-col"></div>
 
@@ -57,12 +67,33 @@
             if (s < 2592000) return bn(Math.floor(s / 86400)) + ' দিন আগে';
             return new Date(ts).toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric' });
         }
-        function todayStoryText(){
+        function banglaDate(d) {
+            // Bangladesh revised calendar: 1 Boishakh = 14 April; first six months 31 days, then 30; Falgun 29 (30 in a leap year); Choitro 30
+            const y = d.getFullYear(), bn = n => Number(n).toLocaleString('bn-BD', { useGrouping: false });
+            let sy = y, by = y - 593;
+            if (Date.UTC(y, d.getMonth(), d.getDate()) < Date.UTC(y, 3, 14)) { sy = y - 1; by = y - 594; }
+            let off = Math.round((Date.UTC(y, d.getMonth(), d.getDate()) - Date.UTC(sy, 3, 14)) / 864e5);
+            const ny = sy + 1, leap = (ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0;
+            const lens = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, leap ? 30 : 29, 30];
+            const names = ['বৈশাখ', 'জ্যৈষ্ঠ', 'আষাঢ়', 'শ্রাবণ', 'ভাদ্র', 'আশ্বিন', 'কার্তিক', 'অগ্রহায়ণ', 'পৌষ', 'মাঘ', 'ফাল্গুন', 'চৈত্র'];
+            let m = 0;
+            while (m < 11 && off >= lens[m]) { off -= lens[m]; m++; }
+            return bn(off + 1) + ' ' + names[m] + ' ' + bn(by);
+        }
+        function todayStoryText() {
             const d = new Date();
-            const en = d.toLocaleDateString('bn-BD', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            const en = d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' });
+            const wd = d.toLocaleDateString('bn-BD', { weekday: 'long' });
             let ar = '';
-            try { ar = d.toLocaleDateString('bn-BD-u-ca-islamic-umalqura', { year: 'numeric', month: 'long', day: 'numeric' }); } catch (e) {}
-            return 'ইংরেজি: ' + en + (ar ? ' | হিজরি: ' + ar : '');
+            try { // Bangladesh usually sights the moon a day after Saudi Arabia, so the Saudi-based date is shifted back one day
+                ar = new Date(d.getTime() - 864e5).toLocaleDateString('bn-BD-u-ca-islamic-umalqura', { day: 'numeric', month: 'long', year: 'numeric' }).replace(/\s*(এএইচ|AH)$/, '') + ' হিজরি';
+            } catch (e) {}
+            return wd + '\nইংরেজি: ' + en + '\nবাংলা: ' + banglaDate(d) + (ar ? '\nআরবি: ' + ar + ' (আনুমানিক)' : '');
+        }
+        function liveStory(st) {
+            if (st.id === 'st1') return { ...st, text: todayStoryText() };
+            if (st.id === 'st4') { const pr = PROVERBS[Math.floor(Date.now() / STORY_TTL) % PROVERBS.length]; return { ...st, text: '"' + pr[0] + '"\nঅর্থ: ' + pr[1] }; }
+            return st;
         }
         document.addEventListener('error', e => {
             const t = e.target;
@@ -96,6 +127,8 @@
             authReady: false,
             adminIds: new Set(),
             signingUp: false,
+            pendingVerify: false,
+            activating: false,
             postLimit: 15,
             postsMore: false,
             memberQuery: '',
@@ -189,18 +222,116 @@
         const STORY_TTL = 6 * 3600 * 1000;
         let storiesUpdatedAt = 0, storyBusy = false, storyLastTry = 0;
         const PROVERBS = [
-            'অতি লোভে তাঁতি নষ্ট।', 'এক হাতে তালি বাজে না।', 'নাচতে না জানলে উঠান বাঁকা।', 'সবুরে মেওয়া ফলে।',
-            'যত গর্জে তত বর্ষে না।', 'ঘরের শত্রু বিভীষণ।', 'অতি দর্পে হত লঙ্কা।', 'শাক দিয়ে মাছ ঢাকা যায় না।',
-            'যতক্ষণ শ্বাস ততক্ষণ আশ।', 'সময়ের এক ফোঁড়, অসময়ের দশ ফোঁড়।', 'দশের লাঠি একের বোঝা।', 'ডুবে ডুবে জল খাওয়া।',
-            'কয়লা ধুলেও ময়লা যায় না।', 'আপনা মাংসে হরিণা বৈরী।', 'অভাবে স্বভাব নষ্ট।', 'তেলা মাথায় তেল দেওয়া।'
+            ['অতি লোভে তাঁতি নষ্ট।', 'বেশি লোভ করলে যা আছে তাও হারাতে হয়।'],
+            ['এক হাতে তালি বাজে না।', 'ঝগড়া বা কাজ, দুই পক্ষ ছাড়া হয় না।'],
+            ['নাচতে না জানলে উঠান বাঁকা।', 'নিজের অক্ষমতার দোষ অন্যের ঘাড়ে চাপানো।'],
+            ['সবুরে মেওয়া ফলে।', 'ধৈর্য ধরলে ভালো ফল পাওয়া যায়।'],
+            ['যত গর্জে তত বর্ষে না।', 'যারা বেশি বড়াই করে তারা কাজে কম দেখায়।'],
+            ['ঘরের শত্রু বিভীষণ।', 'আপনজনের বিশ্বাসঘাতকতাই সবচেয়ে ক্ষতিকর।'],
+            ['অতি দর্পে হত লঙ্কা।', 'অহংকারের পতন অনিবার্য।'],
+            ['শাক দিয়ে মাছ ঢাকা যায় না।', 'অন্যায় বা সত্য লুকিয়ে রাখা যায় না।'],
+            ['যতক্ষণ শ্বাস ততক্ষণ আশ।', 'শেষ মুহূর্ত পর্যন্ত আশা ছাড়তে নেই।'],
+            ['সময়ের এক ফোঁড়, অসময়ের দশ ফোঁড়।', 'সময়মতো কাজ করলে পরে বড় ঝামেলা এড়ানো যায়।'],
+            ['দশের লাঠি একের বোঝা।', 'সবাই মিলে করলে কাজ সহজ হয়।'],
+            ['ডুবে ডুবে জল খাওয়া।', 'সবার অজান্তে গোপনে অন্যায় করা।'],
+            ['কয়লা ধুলেও ময়লা যায় না।', 'খারাপ স্বভাব সহজে বদলায় না।'],
+            ['আপনা মাংসে হরিণা বৈরী।', 'নিজের গুণ বা সম্পদই অনেক সময় নিজের বিপদ ডেকে আনে।'],
+            ['অভাবে স্বভাব নষ্ট।', 'অভাবে পড়লে মানুষের আচরণ বদলে যায়।'],
+            ['তেলা মাথায় তেল দেওয়া।', 'যার আছে তাকেই আরও দেওয়া।']
         ];
+        PROVERBS.push(
+            ["অতি চালাকের গলায় দড়ি।", "বেশি চালাকি করলে নিজেই বিপদে পড়তে হয়।"],
+            ["অল্প বিদ্যা ভয়ঙ্করী।", "অল্প জেনে বড়াই করা বিপজ্জনক।"],
+            ["আগে দর্শনধারী পরে গুণবিচারি।", "প্রথমে বাইরের রূপ আকৃষ্ট করে, গুণ বোঝা যায় পরে।"],
+            ["আপনি বাঁচলে বাপের নাম।", "নিজে নিরাপদ থাকলে তবেই অন্য সবকিছু।"],
+            ["আঙুল ফুলে কলাগাছ।", "হঠাৎ করে ধনী বা প্রভাবশালী হয়ে ওঠা।"],
+            ["ইচ্ছা থাকলে উপায় হয়।", "মনের জোর থাকলে কাজের পথ ঠিক বের হয়।"],
+            ["উচিত কথায় বন্ধু বেজার।", "সত্য কথা বললে অনেক সময় বন্ধুও রাগ করে।"],
+            ["উদোর পিণ্ডি বুধোর ঘাড়ে।", "একজনের দোষ অন্যজনের ওপর চাপানো।"],
+            ["এক মাঘে শীত যায় না।", "একবার বিপদ কাটলেই সবসময় নিরাপদ থাকা যায় না।"],
+            ["কাজের সময় কাজি, কাজ ফুরালে পাজি।", "প্রয়োজন মিটে গেলে উপকারীকে ভুলে যাওয়া।"],
+            ["কান টানলে মাথা আসে।", "একটা সূত্র ধরে পুরো ব্যাপার বেরিয়ে আসে।"],
+            ["কারও পৌষ মাস, কারও সর্বনাশ।", "একজনের সুখ অন্যের দুঃখের কারণ হতে পারে।"],
+            ["কুকুরের পেটে ঘি হজম হয় না।", "অযোগ্যের হাতে ভালো জিনিস টেকে না।"],
+            ["খাল কেটে কুমির আনা।", "নিজেই নিজের বিপদ ডেকে আনা।"],
+            ["গরিবের ঘোড়া রোগ।", "সামর্থ্যের বাইরে শখ করা।"],
+            ["গাছে কাঁঠাল গোঁফে তেল।", "হাতে পাওয়ার আগেই ভোগের আয়োজন।"],
+            ["গাঁয়ে মানে না আপনি মোড়ল।", "নিজেকে নিজেই বড় ভাবা।"],
+            ["ঘরের খেয়ে বনের মোষ তাড়ানো।", "নিজের ক্ষতি করে অন্যের কাজ করা।"],
+            ["চোরের মার বড় গলা।", "দোষী ব্যক্তিই বেশি চেঁচামেচি করে।"],
+            ["ছেলের হাতের মোয়া।", "অতি সহজে পাওয়া জিনিস।"],
+            ["জলে কুমির ডাঙায় বাঘ।", "সবদিকেই বিপদ।"],
+            ["টাকায় কি না হয়।", "অর্থের জোরে অনেক অসম্ভব কাজও সম্ভব হয়।"],
+            ["ঠাকুর ঘরে কে? আমি কলা খাই না।", "নিজের দোষ ঢাকতে গিয়ে ধরা পড়া।"],
+            ["তীরে এসে তরী ডোবা।", "সাফল্যের একেবারে কাছে এসে ব্যর্থ হওয়া।"],
+            ["তিল থেকে তাল।", "ছোট জিনিসকে বড় করে তোলা।"],
+            ["দুধ-কলা দিয়ে কালসাপ পোষা।", "শত্রুকে আদর করে নিজের বিপদ ডেকে আনা।"],
+            ["দুষ্ট গরুর চেয়ে শূন্য গোয়াল ভালো।", "খারাপ সঙ্গীর চেয়ে একা থাকা ভালো।"],
+            ["নুন আনতে পান্তা ফুরায়।", "অভাবের সংসারে সবকিছুতেই টানাটানি।"],
+            ["পরের ধনে পোদ্দারি।", "অন্যের টাকায় বড়মানুষি দেখানো।"],
+            ["পাকা ধানে মই দেওয়া।", "কারও সাফল্য বা সুখ নষ্ট করে দেওয়া।"],
+            ["পুকুর চুরি।", "বড় আকারের অন্যায় বা দুর্নীতি।"],
+            ["বামন হয়ে চাঁদে হাত।", "সাধ্যের বাইরে আকাঙ্ক্ষা করা।"],
+            ["বাঘে ছুঁলে আঠারো ঘা।", "একবার বিপদে পড়লে নানা ঝামেলা এসে জোটে।"],
+            ["বিনা মেঘে বজ্রপাত।", "হঠাৎ অপ্রত্যাশিত বিপদ।"],
+            ["ভাগের মা গঙ্গা পায় না।", "সবার দায়িত্ব মানে কারও দায়িত্ব নয়, তাই কাজ হয় না।"],
+            ["মরা হাতি লাখ টাকা।", "বড়র মর্যাদা বা মূল্য সহজে কমে না।"],
+            ["মাছের তেলে মাছ ভাজা।", "কারও নিজের জিনিস দিয়েই তার কাজ উদ্ধার করা।"],
+            ["যার নুন খাই তার গুণ গাই।", "উপকারীর প্রশংসা করা কর্তব্য।"],
+            ["যেমন কর্ম তেমন ফল।", "কাজ অনুযায়ীই ফল পাওয়া যায়।"],
+            ["রাখে আল্লাহ মারে কে।", "আল্লাহ যাকে রক্ষা করেন, কেউ তার ক্ষতি করতে পারে না।"],
+            ["লেখাপড়া করে যে গাড়িঘোড়া চড়ে সে।", "শিক্ষিত মানুষ জীবনে সফল হয়।"],
+            ["শক্তের ভক্ত নরমের যম।", "শক্তিমানের কাছে নত, দুর্বলের ওপর জুলুম।"],
+            ["সাপের পাঁচ পা দেখা।", "অহংকারে নিজেকে সবার চেয়ে বড় ভাবা।"],
+            ["হাতি ঘোড়া গেল তল, ভেড়া বলে কত জল।", "বড়রা যা পারে না, ছোটরা তা নিয়ে বড়াই করে।"],
+            ["হিতে বিপরীত।", "ভালো করতে গিয়ে উল্টো ফল হওয়া।"],
+            ["ধর্মের কল বাতাসে নড়ে।", "অন্যায়ের শাস্তি একদিন না একদিন হবেই।"],
+            ["নেই কাজ তো খই ভাজ।", "কাজ না থাকলে মানুষ অকাজে সময় কাটায়।"],
+            ["বুদ্ধি যার বল তার।", "বুদ্ধি থাকলে শক্তির দরকার পড়ে না।"],
+            ["বসে খেলে রাজার ভান্ডারও ফুরায়।", "আয় না করে শুধু খরচ করলে যত বড় সম্পদই হোক শেষ হয়।"],
+            ["মুখে মধু অন্তরে বিষ।", "বাইরে মিষ্টি ব্যবহার, ভেতরে শত্রুতা।"],
+            ["দুধেল গাইয়ের লাথিও মিষ্ট।", "যার কাছ থেকে লাভ পাওয়া যায়, তার অন্যায়ও সহ্য করা হয়।"],
+            ["লাভের গুড় পিঁপড়ায় খায়।", "একজনের কষ্টের ফল অন্যেরা ভোগ করে।"],
+            ["সময় গেলে সাধন হবে না।", "সুযোগ চলে গেলে আর কাজ হয় না, তাই সময়ের কাজ সময়ে করতে হয়।"],
+            ["সুখে থাকতে ভূতে কিলায়।", "ভালো থাকতে নিজেই অশান্তি ডেকে আনা।"],
+            ["দশচক্রে ভগবান ভূত।", "অনেকের চক্রান্তে নির্দোষ মানুষও দোষী হয়ে যায়।"],
+            ["দুধের সাধ ঘোলে মেটানো।", "আসল জিনিস না পেয়ে বিকল্পে সন্তুষ্ট থাকা।"],
+            ["ধরি মাছ না ছুঁই পানি।", "কাজ করেও ঝামেলায় না জড়িয়ে পড়া।"],
+            ["নিজের চরকায় তেল দাও।", "অন্যের ব্যাপারে না ঢুকে নিজের কাজ সামলাও।"],
+            ["পড়েছি মোগলের হাতে, খানা খেতে হবে সাথে।", "বাধ্য হয়ে অপছন্দের পরিস্থিতি মেনে নেওয়া।"],
+            ["ঠেলার নাম বাবাজি।", "বিপদে পড়লে সবাই নত হয়।"],
+            ["পেটে খেলে পিঠে সয়।", "লাভ থাকলে কষ্ট সহ্য করা যায়।"],
+            ["ফেলো কড়ি মাখো তেল।", "টাকা খরচ করলেই কাজ হয়।"],
+            ["বিপদ কখনো একা আসে না।", "একটার পর একটা বিপদ এসে পড়ে।"],
+            ["লোভে পাপ, পাপে মৃত্যু।", "লোভ থেকে পাপ, আর পাপ থেকেই সর্বনাশ।"],
+            ["স্বভাব যায় না মলে।", "মানুষের স্বভাব মৃত্যু পর্যন্ত বদলায় না।"],
+            ["ছাই ফেলতে ভাঙা কুলো।", "সামান্য কাজে সামান্য জিনিসই যথেষ্ট।"],
+            ["জোর যার মুল্লুক তার।", "ক্ষমতাবানই সবকিছু দখল করে।"],
+            ["তেলে বেগুনে জ্বলে ওঠা।", "হঠাৎ প্রচণ্ড রেগে যাওয়া।"],
+            ["খলের ছলের অভাব হয় না।", "মন্দ লোক সবসময় অজুহাত খুঁজে পায়।"],
+            ["ঘোড়া ডিঙিয়ে ঘাস খাওয়া।", "বড় কাজ বাদ দিয়ে ছোট কাজে মন দেওয়া।"],
+            ["কথায় চিঁড়ে ভেজে না।", "শুধু কথায় কাজ হয় না, কাজ করতে হয়।"],
+            ["কলুর বলদ।", "দিনরাত একই কাজে খেটেও নিজের লাভ নেই।"],
+            ["গরু মেরে জুতা দান।", "বড় ক্ষতি করে ছোট উপকারের ভান।"],
+            ["চিরদিন কখনও সমান যায় না।", "সুখ-দুঃখ কোনোটাই চিরস্থায়ী নয়।"],
+            ["আদায় কাঁচকলায়।", "দুজনের মধ্যে ঘোর শত্রুতা।"],
+            ["আমড়া কাঠের ঢেঁকি।", "কোনো কাজেরই যোগ্য নয় এমন ব্যক্তি।"],
+            ["উলুবনে মুক্তা ছড়ানো।", "অযোগ্যের কাছে মূল্যবান জিনিসের অপচয়।"],
+            ["কিলিয়ে কাঁঠাল পাকানো।", "জোর খাটিয়ে কাজ আদায় করা।"],
+            ["কুয়োর ব্যাঙ।", "সংকীর্ণ জ্ঞানের গণ্ডিতে আটকে থাকা মানুষ।"],
+            ["ঘুঘু দেখেছ ফাঁদ দেখনি।", "ধূর্ত মানুষও একদিন না একদিন ধরা পড়ে।"],
+            ["চোর পালালে বুদ্ধি বাড়ে।", "ক্ষতি হয়ে যাওয়ার পর সতর্ক হওয়া।"],
+            ["যত দোষ নন্দ ঘোষ।", "সব দোষ একজনের ঘাড়ে চাপানো।"],
+            ["সোনায় সোহাগা।", "ভালোর সাথে আরও ভালোর মিলন।"],
+            ["অল্প জলের পুঁটি ফরফর করে।", "কম জানা বা কম সামর্থ্যের মানুষ বেশি বড়াই করে।"]
+        );
         async function fetchJson(url, ms = 9000) {
             const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
             try { const r = await fetch(url, { signal: c.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); }
             finally { clearTimeout(t); }
         }
         const clip = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
-        const bnNum = n => Number(n).toLocaleString('bn-BD');
+        const bnNum = n => Number(n).toLocaleString('bn-BD', { useGrouping: false });
 
         async function buildFreshStories() {
             const slot = Math.floor(Date.now() / STORY_TTL);
@@ -228,9 +359,7 @@
                     if (lines.length) set(4, 'st5', 'সর্বশেষ সংবাদ', lines.join('\n') + '\nসূত্র: বিবিসি বাংলা');
                 })().catch(() => {})
             ]);
-            // Proverb: no free Bangla proverb API exists, so it rotates through a built-in list
-            set(3, 'st4', 'বাংলার প্রবাদ', '"' + PROVERBS[slot % PROVERBS.length] + '"');
-            return { next, fetched: ok.length - 1 };
+            return { next, fetched: ok.length };
         }
 
         async function maybeRefreshStories(force = false) {
@@ -271,15 +400,81 @@
             }, err));
         }
 
-        auth.onAuthStateChanged(user => {
+        let resendAt = 0;
+        function renderVerify() {
+            const u = auth.currentUser;
+            return `
+                <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-800 to-teal-900 px-4 py-12">
+                    <div class="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 text-center fade-in">
+                        <div class="w-16 h-16 mx-auto rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-2xl mb-4"><i class="fa-solid fa-envelope-circle-check"></i></div>
+                        <h2 class="text-2xl font-bold text-emerald-800 mb-2">ইমেইল ভেরিফাই করুন</h2>
+                        <p class="text-sm text-stone-600 leading-relaxed">আমরা <strong class="break-all">${esc(u ? u.email : '')}</strong> ঠিকানায় একটি ভেরিফিকেশন লিংক পাঠিয়েছি। লিংকে ক্লিক করলে আপনার একাউন্ট চালু হবে। ইনবক্সে না পেলে স্পাম ফোল্ডার দেখুন।</p>
+                        <p class="text-xs text-stone-400 mt-3">ভেরিফাই করার পর এই পেজ নিজে থেকেই এগিয়ে যাবে।</p>
+                        <button onclick="checkVerified(false)" class="w-full mt-6 bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3 rounded-lg shadow transition">আমি ভেরিফাই করেছি</button>
+                        <button onclick="resendVerification()" class="w-full mt-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold py-2.5 rounded-lg text-sm transition">আবার ইমেইল পাঠান</button>
+                        <button onclick="logout()" class="mt-4 text-sm text-stone-500 hover:underline">লগ আউট</button>
+                    </div>
+                </div>`;
+        }
+        async function resendVerification() {
+            if (!auth.currentUser) return;
+            if (Date.now() < resendAt) { alert('একটু অপেক্ষা করে আবার চেষ্টা করুন।'); return; }
+            resendAt = Date.now() + 60000;
+            try { await auth.currentUser.sendEmailVerification(); alert('ভেরিফিকেশন ইমেইল আবার পাঠানো হয়েছে।'); }
+            catch (e) { alert('ইমেইল পাঠানো যায়নি, কিছুক্ষণ পর আবার চেষ্টা করুন।'); }
+        }
+        async function checkVerified(silent) {
+            const u = auth.currentUser;
+            if (!u || !state.pendingVerify) return;
+            try { await u.reload(); } catch (e) { return; }
+            if (!auth.currentUser.emailVerified) { if (!silent) alert('এখনো ভেরিফাই হয়নি। ইমেইলের লিংকে ক্লিক করুন।'); return; }
+            await auth.currentUser.getIdToken(true); // refresh the token so the database sees email_verified
+            await onVerifiedUser(auth.currentUser);
+        }
+        setInterval(() => checkVerified(true), 5000);
+
+        async function onVerifiedUser(user) {
+            if (state.activating) return;
+            state.activating = true; state.signingUp = true;
+            try {
+                const pd = await db.collection('pending').doc(user.uid).get();
+                if (pd.exists) { // first activation: create the real member records
+                    const d = pd.data(), b = db.batch();
+                    b.set(db.collection('phones').doc(d.phone.replace('+', '')), { uid: user.uid, email: user.email });
+                    b.set(db.collection('users').doc(user.uid), d.profile);
+                    b.delete(db.collection('pending').doc(user.uid));
+                    await b.commit();
+                    const nid = 'n_' + Date.now();
+                    await db.collection('notifications').doc(nid).set({
+                        id: nid, recipientPhone: d.phone, text: 'স্বাগতম উঠান প্ল্যাটফর্মে! আমাদের পরিবারে আপনাকে স্বাগতম।',
+                        isRead: false, isEditorBroadcast: false, date: 'এইমাত্র', createdAt: Date.now()
+                    }).catch(() => {});
+                }
+                state.pendingVerify = false;
+                state.signingUp = false;
+                startListeners();
+            } catch (e) {
+                console.error(e);
+                state.signingUp = false;
+                alert('একাউন্ট চালু করা যায়নি। সম্ভবত এই মোবাইল নম্বরে ইতিমধ্যে অন্য একটি আইডি আছে।');
+                auth.signOut();
+            } finally { state.activating = false; }
+        }
+
+        auth.onAuthStateChanged(async user => {
             stopListeners();
             if (!user) {
-                state.currentUser = null; state.notifications = []; state.authReady = true;
+                state.currentUser = null; state.notifications = []; state.pendingVerify = false; state.authReady = true;
                 if (state.currentView !== 'signup') state.currentView = 'login';
                 render();
                 return;
             }
-            startListeners();
+            if (!user.emailVerified) { // not active until the email is verified
+                state.currentUser = null; state.pendingVerify = true; state.authReady = true;
+                render();
+                return;
+            }
+            await onVerifiedUser(user);
         });
 
         function renderNavbar() {
@@ -287,7 +482,7 @@
             const unreadCount = state.notifications.filter(n => n.recipientPhone === state.currentUser.phone && !n.isRead).length;
 
             return `
-                <header class="bg-emerald-800 text-white shadow-md sticky top-0 z-50">
+                <header class="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-700 text-white shadow-lg sticky top-0 z-40">
                     <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
                         <div class="cursor-pointer" onclick="switchView('feed')">
                             <span class="text-2xl font-bold tracking-wider font-serif">উঠান</span>
@@ -326,6 +521,13 @@
                         </div>
                     </div>
                 </header>
+                <nav class="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-stone-200 grid grid-cols-4 text-[11px] font-semibold">
+                    ${[['feed','fa-house','ফিড'],['notifications','fa-bell','বিজ্ঞপ্তি'],['all_members','fa-users','সদস্য'],['me','fa-user','প্রোফাইল']].map(([v,ic,l]) => `
+                        <button onclick="${v === 'me' ? 'viewMyProfile()' : `switchView('${v}')`}" class="py-2.5 flex flex-col items-center gap-0.5 relative ${state.currentView === v || (v === 'me' && state.currentView === 'profile') ? 'text-emerald-700' : 'text-stone-500'}">
+                            <i class="fa-solid ${ic} text-lg"></i><span>${l}</span>
+                            ${v === 'notifications' && unreadCount > 0 ? `<span class="absolute top-1 right-[28%] bg-rose-500 text-white text-[9px] min-w-4 h-4 px-1 rounded-full flex items-center justify-center">${unreadCount}</span>` : ''}
+                        </button>`).join('')}
+                </nav>
             `;
         }
 
@@ -350,11 +552,8 @@
                         </div>
                         <form onsubmit="handleLogin(event)" class="space-y-4">
                             <div>
-                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">মোবাইল (+880 fixed, 1 সহ ১০ ডিজিট)</label>
-                                <div class="flex">
-                                    <span class="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-stone-300 bg-stone-100 text-stone-600 text-xs font-bold">+880</span>
-                                    <input type="text" id="loginPhone" required pattern="1[0-9]{9}" placeholder="1712345678" maxlength="10" class="w-full px-4 py-3 rounded-r-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
-                                </div>
+                                <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">মোবাইল নম্বর অথবা ইমেইল</label>
+                                <input type="text" id="loginPhone" required autocomplete="username" placeholder="01712345678 অথবা you@example.com" class="w-full px-4 py-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-stone-600 mb-1">পাসওয়ার্ড</label>
@@ -432,7 +631,8 @@
         }
 
         function renderFeed() {
-            const currentStory = fixedStories[storyIndex].id === 'st1' ? { ...fixedStories[storyIndex], text: todayStoryText() } : fixedStories[storyIndex];
+            const currentStory = liveStory(fixedStories[storyIndex % fixedStories.length]);
+            const storyIcons = { st1: 'fa-calendar-days', st2: 'fa-book-quran', st3: 'fa-book-open', st4: 'fa-feather-pointed', st5: 'fa-newspaper' };
             const visiblePosts = state.currentUser.isEditor 
                 ? state.posts 
                 : state.posts.filter(p => p.authorPhone !== '+8801770334681');
@@ -440,17 +640,21 @@
             return `
                 ${renderNavbar()}
                 <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
-                    <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-4 flex items-center justify-between">
-                        <div class="space-y-1 flex-grow pr-3">
-                            <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider">${esc(currentStory.title)} (${storyIndex + 1}/${fixedStories.length})${storiesUpdatedAt && storyIndex > 0 ? ' · ' + timeAgo(storiesUpdatedAt) : ''}</span>
-                            <p class="text-sm text-stone-800 font-medium leading-relaxed whitespace-pre-line">${esc(currentStory.text)}</p>
+                    <div class="story-card relative overflow-hidden rounded-2xl shadow-lg text-white p-5 fade-in">
+                        <div class="relative z-10 flex items-start gap-4">
+                            <div class="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0"><i class="fa-solid ${storyIcons[currentStory.id] || 'fa-star'} text-xl"></i></div>
+                            <div class="flex-grow min-w-0">
+                                <div class="text-xs font-bold tracking-wide text-emerald-100">${esc(currentStory.title)}${storiesUpdatedAt && storyIndex % fixedStories.length > 0 && currentStory.id !== 'st4' ? ' · ' + timeAgo(storiesUpdatedAt) : ''}</div>
+                                <p class="text-[15px] font-medium leading-relaxed mt-1 whitespace-pre-line break-words">${esc(currentStory.text)}</p>
+                            </div>
                         </div>
-                        <button onclick="nextStory()" class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2.5 rounded-lg text-xs font-bold flex-shrink-0 shadow transition flex items-center space-x-1">
-                            <span>পরবর্তী</span> <i class="fa-solid fa-arrow-right"></i>
-                        </button>
+                        <div class="relative z-10 flex items-center justify-between mt-4">
+                            <div class="flex gap-1.5">${fixedStories.map((_, i) => `<button onclick="goStory(${i})" aria-label="কার্ড ${i + 1}" class="h-1.5 rounded-full transition-all ${i === storyIndex % fixedStories.length ? 'w-6 bg-white' : 'w-1.5 bg-white/40'}"></button>`).join('')}</div>
+                            <button onclick="nextStory()" class="bg-white/15 hover:bg-white/25 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition">পরবর্তী <i class="fa-solid fa-arrow-right"></i></button>
+                        </div>
                     </div>
 
-                    <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
+                    <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-4">
                         <div class="flex items-center space-x-3 mb-3">
                             <img src="${safeUrl(state.currentUser.profilePhoto)}" class="w-10 h-10 rounded-full border border-stone-300 object-cover">
                             <div>
@@ -476,8 +680,11 @@
             `;
         }
 
+        function goStory(i) { storyIndex = i; render(); }
+
         function nextStory() {
             storyIndex = (storyIndex + 1) % fixedStories.length;
+            if (storyIndex < 0) storyIndex = 0;
             render();
         }
 
@@ -509,25 +716,25 @@
             }
 
             return `
-                <div class="bg-white rounded-xl shadow-sm border border-stone-200 p-5 relative">
+                <div class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 relative card-hover fade-in">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center space-x-3 cursor-pointer" onclick="viewUserProfile('${post.authorPhone}')">
-                            <img src="${safeUrl(post.authorAvatar || getAutoAvatar(post.authorProfession))}" class="w-11 h-11 rounded-full border border-stone-300 object-cover">
+                            <img src="${safeUrl(post.authorAvatar || getAutoAvatar(post.authorProfession))}" class="w-11 h-11 rounded-full ring-2 ring-emerald-100 object-cover">
                             <div>
                                 <h3 class="font-bold text-stone-900 hover:text-emerald-700 text-sm">${esc(post.authorName)}</h3>
                                 <div class="flex items-center space-x-2 text-xs text-stone-500">
                                     <span class="bg-stone-100 text-stone-700 px-2 py-0.5 rounded font-medium">${esc(post.authorProfession)}</span>
                                     <span>•</span>
-                                    <span>${timeAgo(post.createdAt, post.date)}</span>
+                                    <span>${timeAgo(post.createdAt, post.date)}${post.editedAt ? ' · সম্পাদিত' : ''}</span>
                                 </div>
                             </div>
                         </div>
                         ${isAuthor || isAdmin ? `
-                            <div class="relative group/boltu">
-                                <button class="text-stone-400 hover:text-stone-700 p-2 cursor-pointer"><i class="fa-solid fa-gear text-lg"></i></button>
-                                <div class="absolute right-0 mt-1 w-28 bg-white border border-stone-200 rounded-md shadow-lg hidden group-hover/boltu:block z-10 py-1 text-xs">
-                                    ${isAuthor ? `<button onclick="editPost('${post.id}')" class="w-full text-left px-3 py-1.5 hover:bg-stone-100 text-stone-700"><i class="fa-solid fa-pen mr-1"></i> এডিট</button>` : ''}
-                                    ${isAuthor || isAdmin ? `<button onclick="deletePost('${post.id}')" class="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600"><i class="fa-solid fa-trash mr-1"></i> ডিলিট</button>` : ''}
+                            <div class="relative">
+                                <button onclick="togglePostMenu(event, '${post.id}')" class="text-stone-400 hover:text-stone-700 hover:bg-stone-100 w-9 h-9 rounded-full flex items-center justify-center" aria-label="পোস্ট মেনু"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                <div id="pm-${post.id}" class="hidden absolute right-0 mt-1 w-36 bg-white border border-stone-200 rounded-xl shadow-xl z-20 py-1 text-sm overflow-hidden">
+                                    ${isAuthor ? `<button onclick="editPost('${post.id}')" class="w-full text-left px-4 py-2.5 hover:bg-stone-100 text-stone-700 flex items-center gap-2"><i class="fa-solid fa-pen w-4"></i> এডিট</button>` : ''}
+                                    <button onclick="deletePost('${post.id}')" class="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-rose-600 flex items-center gap-2"><i class="fa-solid fa-trash w-4"></i> ডিলিট</button>
                                 </div>
                             </div>
                         ` : ''}
@@ -739,89 +946,90 @@
 
         function renderEditorPanel() {
             if (!state.currentUser?.isEditor) return renderFeed();
-
-            const scoredUsers = state.users.filter(u => u.phone !== '+8801770334681').map(u => {
-                const postCount = state.posts.filter(p => p.authorPhone === u.phone).length;
-                let totalReactionsReceived = 0;
-                state.posts.filter(p => p.authorPhone === u.phone).forEach(p => {
-                    totalReactionsReceived += (p.reactions['Masaallah']?.length || 0) + (p.reactions['Dua Roilo']?.length || 0) + (p.reactions['Innalillah']?.length || 0);
-                });
-                const totalCommentsMade = state.posts.reduce((acc, p) => acc + p.comments.filter(c => c.authorPhone === u.phone).length, 0);
-                const performanceScore = (postCount * 10) + (totalReactionsReceived * 5) + (totalCommentsMade * 3);
-                return { ...u, postCount, totalReactionsReceived, totalCommentsMade, performanceScore };
+            const ADMIN = '+8801770334681';
+            const reactCount = p => Object.values(p.reactions || {}).reduce((a, r) => a + r.length, 0);
+            const scored = state.users.filter(u => u.phone !== ADMIN).map(u => {
+                const mine = state.posts.filter(p => p.authorPhone === u.phone);
+                const postCount = mine.length;
+                const got = mine.reduce((a, p) => a + reactCount(p), 0);
+                const cm = state.posts.reduce((a, p) => a + (p.comments || []).filter(c => c.authorPhone === u.phone).length, 0);
+                return { ...u, postCount, performanceScore: postCount * 10 + got * 5 + cm * 3 };
             }).sort((a, b) => b.performanceScore - a.performanceScore);
+            const q = (state.adminQuery || '').trim().toLowerCase();
+            const shown = scored.filter(u => !q || [u.name, u.phone, u.sscBatch, u.location].join(' ').toLowerCase().includes(q));
+            const tile = (icon, label, val, color) => `<div class="rounded-2xl p-4 text-white bg-gradient-to-br ${color} shadow"><i class="fa-solid ${icon} opacity-80"></i><div class="text-2xl font-bold leading-tight mt-1">${val}</div><div class="text-[11px] opacity-90">${label}</div></div>`;
+            const editable = [1, 2, 4].filter(i => fixedStories[i]);
+            const first = fixedStories[editable[0]] || { title: '', text: '' };
+            const card = 'bg-white rounded-2xl shadow-sm border border-stone-200 p-5';
 
             return `
                 ${renderNavbar()}
-                <main class="max-w-2xl mx-auto px-4 py-6 flex-grow w-full space-y-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-amber-300 p-6 space-y-6">
-                        <h2 class="text-2xl font-bold font-serif text-amber-800 flex items-center">
-                            <i class="fa-solid fa-shield-halved mr-2"></i> অ্যাডমিন কন্ট্রোল প্যানেল
-                        </h2>
-                        
-                        <div class="bg-stone-50 p-4 rounded-xl border border-stone-200">
-                            <h3 class="font-bold text-stone-800 text-sm mb-2">বিজ্ঞপ্তি পাঠান (সকলকে বা ব্যক্তিগতভাবে)</h3>
-                            <form onsubmit="handleEditorBroadcast(event)" class="space-y-3">
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">প্রাপক নির্বাচন করুন</label>
-                                    <select id="broadcastTarget" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
-                                        <option value="ALL">সকল সদস্য (All Members)</option>
-                                        ${state.users.filter(u => u.phone !== '+8801770334681').map(u => `<option value="${u.phone}">${esc(u.name)} (${u.phone})</option>`).join('')}
-                                    </select>
-                                </div>
-                                <textarea id="broadcastText" rows="2" placeholder="বিজ্ঞপ্তির বার্তা লিখুন..." class="w-full p-2.5 rounded-lg border border-stone-300 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
-                                <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition">বিজ্ঞপ্তি পাঠান</button>
-                            </form>
+                <main class="max-w-3xl mx-auto px-4 py-6 flex-grow w-full space-y-5">
+                    <h2 class="text-2xl font-bold text-amber-800 flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> অ্যাডমিন প্যানেল</h2>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        ${tile('fa-users', 'মোট সদস্য', state.users.length, 'from-emerald-600 to-teal-600')}
+                        ${tile('fa-pen-nib', 'লোড করা পোস্ট', state.posts.length, 'from-amber-500 to-orange-600')}
+                        ${tile('fa-comments', 'মন্তব্য', state.posts.reduce((a, p) => a + (p.comments || []).length, 0), 'from-sky-500 to-indigo-600')}
+                        ${tile('fa-hands-praying', 'প্রতিক্রিয়া', state.posts.reduce((a, p) => a + reactCount(p), 0), 'from-rose-500 to-pink-600')}
+                    </div>
+
+                    <div class="${card}">
+                        <h3 class="font-bold text-stone-800 mb-3"><i class="fa-solid fa-bullhorn text-amber-600 mr-1"></i> বিজ্ঞপ্তি পাঠান</h3>
+                        <form onsubmit="handleEditorBroadcast(event)" class="space-y-3">
+                            <select id="broadcastTarget" class="w-full p-2.5 rounded-lg border border-stone-300 text-sm bg-white">
+                                <option value="ALL">সকল সদস্য</option>
+                                ${state.users.filter(u => u.phone !== ADMIN).map(u => `<option value="${esc(u.phone)}">${esc(u.name)} (${esc(u.phone)})</option>`).join('')}
+                            </select>
+                            <textarea id="broadcastText" rows="2" placeholder="বিজ্ঞপ্তির বার্তা লিখুন..." class="w-full p-3 rounded-lg border border-stone-300 text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+                            <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 rounded-lg text-sm font-bold">পাঠান</button>
+                        </form>
+                    </div>
+
+                    <div class="${card} space-y-3">
+                        <div class="flex justify-between items-center flex-wrap gap-2">
+                            <h3 class="font-bold text-stone-800"><i class="fa-solid fa-book-open text-amber-700 mr-1"></i> স্টোরি কার্ড</h3>
+                            <button onclick="autoUpdateStoriesFromOnlineLink()" class="bg-teal-700 hover:bg-teal-800 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-rotate"></i> এখনই ইন্টারনেট থেকে আপডেট</button>
                         </div>
+                        <p class="text-xs text-stone-500">শেষ অটো-আপডেট: ${storiesUpdatedAt ? timeAgo(storiesUpdatedAt) : 'এখনো হয়নি'} · প্রতি ৬ ঘণ্টায় নিজে আপডেট হয়। তারিখ ও প্রবাদের কার্ড স্বয়ংক্রিয়, তাই এডিট করা যায় না।</p>
+                        <form onsubmit="handleUpdateStories(event)" class="space-y-3 pt-3 border-t border-stone-100">
+                            <select id="storySelect" onchange="loadStoryTextForEdit(this.value)" class="w-full p-2.5 rounded-lg border border-stone-300 text-sm bg-white">
+                                ${editable.map(i => `<option value="${i}">${esc(fixedStories[i].title)}</option>`).join('')}
+                            </select>
+                            <input type="text" id="editStoryTitle" value="${esc(first.title)}" class="w-full p-2.5 rounded-lg border border-stone-300 text-sm">
+                            <textarea id="editStoryText" rows="4" class="w-full p-3 rounded-lg border border-stone-300 text-sm">${esc(first.text)}</textarea>
+                            <button type="submit" class="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-lg text-sm font-bold">সংরক্ষণ করুন</button>
+                        </form>
+                    </div>
 
-                        <div class="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
-                            <div class="flex justify-between items-center flex-wrap gap-2">
-                                <h3 class="font-bold text-stone-800 text-sm"><i class="fa-solid fa-book-open text-amber-700 mr-1"></i> ফিড স্টোরি ম্যানেজমেন্ট</h3>
-                                <button onclick="autoUpdateStoriesFromOnlineLink()" class="bg-teal-700 hover:bg-teal-800 text-white px-3 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow">
-                                    <i class="fa-solid fa-globe"></i> <span>ইন্টারনেট থেকে অটো আপডেট</span>
-                                </button>
-                            </div>
+                    <div class="${card} space-y-3">
+                        <h3 class="font-bold text-stone-800"><i class="fa-solid fa-clock-rotate-left text-sky-600 mr-1"></i> সাম্প্রতিক পোস্ট</h3>
+                        ${state.posts.length === 0 ? '<p class="text-sm text-stone-500">কোনো পোস্ট নেই।</p>' : ''}
+                        ${state.posts.slice(0, 8).map(p => `
+                            <div class="flex items-start justify-between gap-3 p-3 bg-stone-50 rounded-xl border border-stone-100">
+                                <div class="min-w-0">
+                                    <p class="text-xs font-bold text-stone-800">${esc(p.authorName)} <span class="font-normal text-stone-400">· ${timeAgo(p.createdAt, p.date)}</span></p>
+                                    <p class="text-sm text-stone-600 break-words">${esc((p.content || '').slice(0, 120)) || '(ছবি)'}</p>
+                                </div>
+                                <button onclick="deletePost('${p.id}')" class="text-rose-600 hover:bg-rose-50 w-8 h-8 rounded-full flex-shrink-0" title="ডিলিট"><i class="fa-solid fa-trash"></i></button>
+                            </div>`).join('')}
+                    </div>
 
-                            <form onsubmit="handleUpdateStories(event)" class="space-y-3 pt-2 border-t border-stone-200">
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">স্টোরি নির্বাচন করুন</label>
-                                    <select id="storySelect" onchange="loadStoryTextForEdit(this.value)" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
-                                        ${fixedStories.map((s, i) => `<option value="${i}">${esc(s.title)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">শিরোনাম (Title)</label>
-                                    <input type="text" id="editStoryTitle" value="${esc(fixedStories[0].title)}" class="w-full p-2 rounded-lg border border-stone-300 text-xs bg-white">
-                                </div>
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-stone-600 mb-1">মূল লেখা (Text)</label>
-                                    <textarea id="editStoryText" rows="3" class="w-full p-2.5 rounded-lg border border-stone-300 text-xs bg-white">${esc(fixedStories[0].text)}</textarea>
-                                </div>
-                                <button type="submit" class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-xs font-bold transition">স্টোরি আপডেট করুন</button>
-                            </form>
-                        </div>
-
-                        <div>
-                            <h3 class="font-bold text-stone-800 text-sm mb-3">শীর্ষ মূল্যবান সদস্য (Top Valuable Members)</h3>
-                            <div class="space-y-2">
-                                ${scoredUsers.map((u, idx) => `
-                                    <div class="flex items-center justify-between p-3 bg-stone-50 rounded-lg text-xs border border-stone-200">
-                                        <div class="flex items-center space-x-3">
-                                            <span class="font-bold text-amber-700 w-5">#${idx + 1}</span>
-                                            <img src="${safeUrl(u.profilePhoto)}" class="w-9 h-9 rounded-full object-cover">
-                                            <div>
-                                                <p class="font-bold text-stone-900">${esc(u.name)} (${u.phone})</p>
-                                                <span class="text-stone-500">ব্যাচ: ${esc(u.sscBatch)} | ${esc(u.profession)}</span>
-                                            </div>
-                                        </div>
-                                        <div class="text-right">
-                                            <span class="font-bold text-emerald-800 text-sm">স্কোর: ${u.performanceScore}</span>
-                                            <p class="text-[10px] text-stone-400">পোস্ট: ${u.postCount}</p>
-                                        </div>
+                    <div class="${card} space-y-3">
+                        <h3 class="font-bold text-stone-800"><i class="fa-solid fa-ranking-star text-emerald-700 mr-1"></i> সদস্য ব্যবস্থাপনা (${shown.length})</h3>
+                        <input id="adminSearch" type="search" value="${esc(state.adminQuery || '')}" oninput="state.adminQuery = this.value; render()" placeholder="নাম, মোবাইল, ব্যাচ বা ঠিকানা দিয়ে খুঁজুন" class="w-full px-4 py-2.5 rounded-lg border border-stone-300 text-sm focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                        ${shown.map((u, idx) => `
+                            <div class="flex items-center justify-between gap-2 p-3 bg-stone-50 rounded-xl border border-stone-100">
+                                <div class="flex items-center gap-3 min-w-0 cursor-pointer" onclick="viewUserProfile('${u.phone}')">
+                                    <span class="font-bold text-amber-700 w-6 text-sm">#${idx + 1}</span>
+                                    <img src="${safeUrl(u.profilePhoto)}" class="w-10 h-10 rounded-full object-cover flex-shrink-0">
+                                    <div class="min-w-0">
+                                        <p class="font-bold text-sm text-stone-900 truncate">${esc(u.name)}</p>
+                                        <p class="text-[11px] text-stone-500 truncate">${esc(u.phone)} · ব্যাচ ${esc(u.sscBatch)} · পোস্ট ${u.postCount} · স্কোর ${u.performanceScore}</p>
                                     </div>
-                                `).join('')}
-                            </div>
-                        </div>
+                                </div>
+                                <button onclick="adminDeleteUser('${u.phone}')" class="text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-200 flex-shrink-0">ডিলিট</button>
+                            </div>`).join('')}
                     </div>
                 </main>
             `;
@@ -924,38 +1132,28 @@
 
             if (!/^1[0-9]{9}$/.test(rawPhone)) { alert('মোবাইল নম্বর অবশ্যই 1 দিয়ে শুরু এবং মোট ১০ ডিজিটের হতে হবে (+880 বাদে)!'); return; }
             if (!/^[0-9]{4}$/.test(sscBatch)) { alert('এসএসসি ব্যাচ অবশ্যই ৪ ডিজিটের হতে হবে!'); return; }
+            if (await lookupEmail(rawPhone)) { alert('এই মোবাইল নম্বরে ইতিমধ্যেই একটি আইডি রেজিস্টার্ড রয়েছে!'); return; }
 
             const phone = '+880' + rawPhone;
-            state.signingUp = true;
             let cred;
             try {
                 cred = await auth.createUserWithEmailAndPassword(email, password);
             } catch (e) {
-                state.signingUp = false;
                 const m = { 'auth/email-already-in-use': 'এই ইমেইল ইতিমধ্যে ব্যবহৃত হয়েছে!', 'auth/invalid-email': 'ইমেইল সঠিক নয়!', 'auth/weak-password': 'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের দিন!' };
                 alert(m[e.code] || 'একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।');
                 return;
             }
             const uid = cred.user.uid;
-            cred.user.sendEmailVerification().catch(() => {});
-            const newUser = { uid, name, phone, profession, age, location, sscBatch, profilePhoto: getAutoAvatar() };
+            const profile = { uid, name, phone, profession, age, location, sscBatch, profilePhoto: getAutoAvatar() };
             try {
-                const b = db.batch();
-                b.set(db.collection('phones').doc('880' + rawPhone), { uid, email });
-                b.set(db.collection('users').doc(uid), newUser);
-                await b.commit();
+                // The profile waits in "pending" and becomes a real member only after the email is verified
+                await db.collection('pending').doc(uid).set({ uid, phone, email, profile, createdAt: Date.now() });
             } catch (e) {
                 await cred.user.delete().catch(() => {});
-                state.signingUp = false;
-                alert('এই মোবাইল নম্বরে ইতিমধ্যেই একটি আইডি রেজিস্টার্ড রয়েছে!');
+                alert('একাউন্ট তৈরি করা যায়নি, আবার চেষ্টা করুন।');
                 return;
             }
-            const nid = 'n_' + Date.now();
-            await db.collection('notifications').doc(nid).set({
-                id: nid, recipientPhone: phone, text: 'স্বাগতম উঠান প্ল্যাটফর্মে! আমাদের পরিবারে আপনাকে স্বাগতম।',
-                isRead: false, isEditorBroadcast: false, date: 'এইমাত্র', createdAt: Date.now()
-            }).catch(() => {});
-            state.signingUp = false;
+            cred.user.sendEmailVerification().catch(() => {});
         }
 
         async function lookupEmail(rawPhone) {
@@ -965,17 +1163,24 @@
             } catch (e) { return null; }
         }
 
+        function parseLoginId(v) {
+            v = v.trim().replace(/\s+/g, '');
+            if (v.includes('@')) return { email: v.toLowerCase() };
+            const m = v.match(/^(?:\+?880|0)?(1[0-9]{9})$/);
+            return m ? { phone: m[1] } : null;
+        }
+
         async function handleLogin(event) {
             event.preventDefault();
-            const rawPhone = document.getElementById('loginPhone').value.trim();
+            const id = parseLoginId(document.getElementById('loginPhone').value);
             const password = document.getElementById('loginPassword').value;
-            if (!/^1[0-9]{9}$/.test(rawPhone)) { alert('সঠিক ১০ ডিজিটের মোবাইল নম্বর দিন (1 দিয়ে শুরু)!'); return; }
-            const email = await lookupEmail(rawPhone);
+            if (!id) { alert('সঠিক মোবাইল নম্বর (01XXXXXXXXX) অথবা ইমেইল দিন!'); return; }
+            const email = id.email || await lookupEmail(id.phone);
             try {
                 if (!email) throw new Error('no-user');
                 await auth.signInWithEmailAndPassword(email, password);
             } catch (e) {
-                alert('মোবাইল নম্বর অথবা পাসওয়ার্ড ভুল হয়েছে!');
+                alert('মোবাইল/ইমেইল অথবা পাসওয়ার্ড ভুল হয়েছে!');
             }
         }
 
@@ -988,12 +1193,11 @@
         }
 
         async function recoverPasswordPrompt() {
-            const raw = (prompt('আপনার মোবাইল নম্বর দিন (+880 ছাড়া, 1 দিয়ে শুরু ১০ ডিজিট):') || '').trim();
-            if (!raw) return;
-            if (!/^1[0-9]{9}$/.test(raw)) { alert('সঠিক ১০ ডিজিটের নম্বর দিন!'); return; }
-            const email = await lookupEmail(raw);
+            const id = parseLoginId(prompt('আপনার মোবাইল নম্বর অথবা ইমেইল দিন:') || '');
+            if (!id) { alert('সঠিক মোবাইল নম্বর বা ইমেইল দিন!'); return; }
+            const email = id.email || await lookupEmail(id.phone);
             if (email) { try { await auth.sendPasswordResetEmail(email); } catch (e) { console.error(e); } }
-            alert('যদি এই নম্বরের একাউন্ট থাকে, তাহলে পাসওয়ার্ড রিসেট লিংক ইমেইলে পাঠানো হয়েছে। ইনবক্স ও স্পাম ফোল্ডার দেখুন।');
+            alert('যদি এই নম্বর/ইমেইলের একাউন্ট থাকে, তাহলে পাসওয়ার্ড রিসেট লিংক ইমেইলে পাঠানো হয়েছে। ইনবক্স ও স্পাম ফোল্ডার দেখুন।');
         }
 
         async function handleCreatePost(event) {
@@ -1022,19 +1226,51 @@
             render();
         }
 
-        async function editPost(postId) {
+        function togglePostMenu(e, id) {
+            e.stopPropagation();
+            document.querySelectorAll('[id^="pm-"]').forEach(m => { if (m.id !== 'pm-' + id) m.classList.add('hidden'); });
+            const m = document.getElementById('pm-' + id);
+            if (m) m.classList.toggle('hidden');
+        }
+        window.addEventListener('click', () => document.querySelectorAll('[id^="pm-"]').forEach(m => m.classList.add('hidden')));
+
+        function closeEditPost() { const m = document.getElementById('editPostModal'); if (m) m.remove(); }
+        function editPost(postId) {
+            const post = state.posts.find(p => p.id === postId);
+            if (!post || post.authorPhone !== state.currentUser.phone) return;
+            closeEditPost();
+            const div = document.createElement('div');
+            div.id = 'editPostModal';
+            div.className = 'fixed inset-0 bg-stone-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4';
+            div.innerHTML = `
+                <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl fade-in">
+                    <h3 class="text-lg font-bold text-emerald-800 mb-3">পোস্ট এডিট করুন</h3>
+                    <textarea id="editPostText" rows="6" maxlength="5000" class="w-full p-3 rounded-lg border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-none text-sm"></textarea>
+                    <input id="editPostImage" type="text" placeholder="ছবির লিংক (ঐচ্ছিক)" class="w-full mt-3 px-3 py-2 rounded-lg border border-stone-300 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none">
+                    <div class="flex justify-end gap-2 mt-4">
+                        <button onclick="closeEditPost()" class="px-4 py-2 rounded-lg bg-stone-100 hover:bg-stone-200 text-sm font-semibold">বাতিল</button>
+                        <button onclick="saveEditedPost('${post.id}')" class="px-5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-bold">সংরক্ষণ</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(div);
+            document.getElementById('editPostText').value = post.content || '';
+            document.getElementById('editPostImage').value = post.image || '';
+        }
+        async function saveEditedPost(postId) {
             const post = state.posts.find(p => p.id === postId);
             if (!post) return;
-            const newContent = prompt('আপনার পোস্ট এডিট করুন:', post.content);
-            if (newContent !== null) {
-                post.content = newContent.trim();
-                await saveDataToCloud();
-                render();
-            }
+            const content = document.getElementById('editPostText').value.trim();
+            const image = document.getElementById('editPostImage').value.trim();
+            if (!content && !image) { alert('পোস্ট ফাঁকা রাখা যাবে না!'); return; }
+            post.content = content; post.image = image; post.editedAt = Date.now();
+            closeEditPost();
+            await saveDataToCloud();
+            render();
         }
 
         async function deletePost(postId) {
-            if (confirm('আপনি কি নিশ্চিত এই পোস্টটি ডিলিট করতে চান?')) {
+            if (confirm('আপনি কি নিশ্চিত এই পোস্টটি ডিলিট করতে চান? এটি আর ফেরানো যাবে না।')) {
+                state.activeModalPostId = null;
                 state.posts = state.posts.filter(p => p.id !== postId);
                 await saveDataToCloud();
                 render();
@@ -1255,6 +1491,7 @@
         function render() {
             const app = document.getElementById('app');
             if (!state.authReady) { app.innerHTML = '<div class="min-h-screen flex items-center justify-center text-stone-500 text-sm">লোড হচ্ছে...</div>'; return; }
+            if (state.pendingVerify && auth.currentUser) { app.innerHTML = renderVerify(); return; }
             let contentHTML = '';
 
             if (!state.currentUser) {
